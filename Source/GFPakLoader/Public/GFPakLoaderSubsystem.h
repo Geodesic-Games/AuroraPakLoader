@@ -36,12 +36,14 @@ public:
 	FPakPluginEvent& OnPakPluginAdded() { return OnPakPluginAddedDelegate; }
 	FOnStatusChanged& OnPakPluginStatusChanged() { return OnPakPluginStatusChangedDelegate; }
 	FPakPluginEvent& OnPakPluginRemoved() { return OnPakPluginRemovedDelegate; }
-
+	
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader Subsystem", meta=(AdvancedDisplay=1))
+	FString GetDefaultPakPluginFolder() const;
 	/**
 	 * Look for Packaged Plugins in the given folder, add them to the subsystem and load them.
 	 * This is a one time operation: if other plugins are added to the folder, the function would have to be called again.
 	 * If a Packaged Plugin is already registered for this path, the function will return it.
-	 * @param InPakPluginFolder The path to the folder in which to look for PakPlugins
+	 * @param InPakPluginFolder The path to the folder in which to look for PakPlugins. If empty, will load the default PakPlugin Folder
 	 * @param bMountPakPlugins If true, the valid plugins found will be mounted directly (by calling `UGFPakPluginLoader::Mount`)
 	 * @return Returns an array of the plugins.
 	 */

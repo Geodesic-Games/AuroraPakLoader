@@ -80,20 +80,32 @@ void UGFPakLoaderSubsystem::Deinitialize()
 	OnSubsystemShutdownDelegate.Broadcast();
 }
 
+FString UGFPakLoaderSubsystem::GetDefaultPakPluginFolder() const
+{
+	const UGFPakLoaderSettings* PakLoaderSettings = GetDefault<UGFPakLoaderSettings>();
+	return PakLoaderSettings->GetAbsolutePakLoadPath();
+}
+
 TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& InPakPluginFolder, bool bMountPakPlugins)
 {
+	FString PakPluginFolder = InPakPluginFolder.IsEmpty() ? GetDefaultPakPluginFolder() : InPakPluginFolder;
 	if (!IsReady())
 	{
-		UE_LOG(LogGFPakLoader, Error, TEXT("UGFPakLoaderSubsystem is not ready. Unable to AddPakPluginFolder '%s'"), *InPakPluginFolder)
+		UE_LOG(LogGFPakLoader, Error, TEXT("UGFPakLoaderSubsystem is not ready. Unable to AddPakPluginFolder '%s'"), *PakPluginFolder)
+		return {};
+	}
+	if (!FPaths::DirectoryExists(PakPluginFolder))
+	{
+		UE_LOG(LogGFPakLoader, Error, TEXT("Unable to load the Pak Plugin folder because the directory does not exist: '%s'"), *PakPluginFolder)
 		return {};
 	}
 	
-	UE_LOG(LogGFPakLoader, Log, TEXT("Adding Pak Plugins located in the folder '%s'..."), *InPakPluginFolder)
+	UE_LOG(LogGFPakLoader, Log, TEXT("Adding Pak Plugins located in the folder '%s'..."), *PakPluginFolder)
 	const int NbPrePlugins = GameFeaturesPakPlugins.Num();
 	
 	IFileManager& FileManager = IFileManager::Get();
 	FDirectoryLister DirectoryLister;
-	FileManager.IterateDirectory(*InPakPluginFolder, DirectoryLister);
+	FileManager.IterateDirectory(*PakPluginFolder, DirectoryLister);
 
 	int NbFailed = 0;
 	TArray<UGFPakPlugin*> Plugins;
@@ -112,7 +124,9 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 
 	const int NbAddedPlugins = GameFeaturesPakPlugins.Num() - NbPrePlugins;
 	const int NbReferencedPlugins = Plugins.Num() - NbAddedPlugins;
-	UE_LOG(LogGFPakLoader, Log, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
+	UE_CLOG(NbAddedPlugins > 0, LogGFPakLoader, Log, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
+		NbAddedPlugins, NbReferencedPlugins, NbFailed)
+	UE_CLOG(NbAddedPlugins == 0, LogGFPakLoader, Verbose, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
 		NbAddedPlugins, NbReferencedPlugins, NbFailed)
 	return Plugins;
 }
@@ -303,8 +317,7 @@ void UGFPakLoaderSubsystem::Start()
 			
 	OnSubsystemReadyDelegate.Broadcast();
 
-	const UGFPakLoaderSettings* PakLoaderSettings = GetDefault<UGFPakLoaderSettings>();
-	const FString Path = PakLoaderSettings->GetAbsolutePakLoadPath();
+	const FString Path = GetDefaultPakPluginFolder();
 	if (FPaths::DirectoryExists(Path))
 	{
 		AddPakPluginFolder(Path);

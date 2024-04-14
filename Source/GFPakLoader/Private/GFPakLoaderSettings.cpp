@@ -7,7 +7,7 @@
 
 UGFPakLoaderSettings::UGFPakLoaderSettings()
 {
-	SetPakLoadPath(TEXT("/Stadiums/"));
+	SetPakLoadPath(TEXT("/DLC/"));
 }
 
 #if WITH_EDITOR
