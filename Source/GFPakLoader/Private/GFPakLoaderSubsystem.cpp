@@ -86,7 +86,7 @@ FString UGFPakLoaderSubsystem::GetDefaultPakPluginFolder() const
 	return PakLoaderSettings->GetAbsolutePakLoadPath();
 }
 
-TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& InPakPluginFolder, bool bMountPakPlugins)
+TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& InPakPluginFolder)
 {
 	FString PakPluginFolder = InPakPluginFolder.IsEmpty() ? GetDefaultPakPluginFolder() : InPakPluginFolder;
 	if (!IsReady())
@@ -111,10 +111,9 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 	TArray<UGFPakPlugin*> Plugins;
 	for (const FString& PluginPath : DirectoryLister.Directories)
 	{
-		if (UGFPakPlugin* Plugin = AddPakPlugin(PluginPath, bMountPakPlugins))
+		if (UGFPakPlugin* Plugin = AddPakPlugin(PluginPath))
 		{
 			Plugins.Add(Plugin);
-			Plugin->ActivateGameFeature(FOperationCompleted::CreateLambda([](const bool bSuccessful, const TOptional<UE::GameFeatures::FResult>& Result){}));
 		}
 		else
 		{
@@ -131,7 +130,7 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 	return Plugins;
 }
 
-UGFPakPlugin* UGFPakLoaderSubsystem::AddPakPlugin(const FString& InPakPluginPath, bool bMountPakPlugin)
+UGFPakPlugin* UGFPakLoaderSubsystem::AddPakPlugin(const FString& InPakPluginPath)
 {
 	if (!IsReady())
 	{
@@ -152,15 +151,15 @@ UGFPakPlugin* UGFPakLoaderSubsystem::AddPakPlugin(const FString& InPakPluginPath
 		if (PakPlugin->LoadPluginData())
 		{
 			GameFeaturesPakPlugins.Emplace(PakPlugin);
-			if (bMountPakPlugin)
+
+			PakPlugin->OnStatusChanged().AddDynamic(this, &ThisClass::PakPluginStatusChanged);
+			OnPakPluginAddedDelegate.Broadcast(PakPlugin);
+			OnPakPluginStatusChangedDelegate.Broadcast(PakPlugin, EGFPakLoaderStatus::NotInitialized, PakPlugin->GetStatus());
+
+			if (GetDefault<UGFPakLoaderSettings>()->bAutoMountPakPlugins && PakPlugin->GetStatus() == EGFPakLoaderStatus::Unmounted)
 			{
 				PakPlugin->Mount();
 			}
-
-			PakPlugin->OnStatusChanged().AddUObject(this, &ThisClass::PakPluginStatusChanged);
-			OnPakPluginAddedDelegate.Broadcast(PakPlugin);
-			OnPakPluginStatusChangedDelegate.Broadcast(PakPlugin, EGFPakLoaderStatus::NotInitialized, PakPlugin->GetStatus());
-			
 			return PakPlugin;
 		}
 		PakPlugin->ConditionalBeginDestroy();

@@ -44,11 +44,10 @@ public:
 	 * This is a one time operation: if other plugins are added to the folder, the function would have to be called again.
 	 * If a Packaged Plugin is already registered for this path, the function will return it.
 	 * @param InPakPluginFolder The path to the folder in which to look for PakPlugins. If empty, will load the default PakPlugin Folder
-	 * @param bMountPakPlugins If true, the valid plugins found will be mounted directly (by calling `UGFPakPluginLoader::Mount`)
 	 * @return Returns an array of the plugins.
 	 */
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem", meta=(AdvancedDisplay=1))
-	TArray<UGFPakPlugin*> AddPakPluginFolder(const FString& InPakPluginFolder, bool bMountPakPlugins = true);
+	TArray<UGFPakPlugin*> AddPakPluginFolder(const FString& InPakPluginFolder);
 	/**
 	 * Add a Packaged Plugin to the subsystem and load it (equivalent of calling UGFPakPluginLoader::LoadPluginData).
 	 * If a Packaged Plugin is already registered for this path, the function will return it.
@@ -59,11 +58,10 @@ public:
 	 *		my-plugin-name.uplugin
 	 *		Content/Paks/<platform>/my-plugin-name-and-additional-things.pak
 	 * Here, the path to the plugin directory would be the path to 'my-plugin-name', for example 'C:/Pak/my-plugin-name/'
-	 * @param bMountPakPlugin If true and the plugin is valid, it will be mounted directly (by calling `UGFPakPluginLoader::Mount`)
 	 * @return Returns the newly added plugins, or the existing one if the subsystem already had a plugin at this directory
 	 */
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem", meta=(AdvancedDisplay=1))
-	UGFPakPlugin* AddPakPlugin(const FString& InPakPluginPath, bool bMountPakPlugin = true);
+	UGFPakPlugin* AddPakPlugin(const FString& InPakPluginPath);
 
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
 	const TArray<UGFPakPlugin*>& GetPakPlugins() const
@@ -127,7 +125,8 @@ private:
 	 */
 	inline static TMap<FString, TWeakPtr<FPluginMountPoint>> MountPoints = {};
 
-	void PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderPreviousStatus OldValue, EGFPakLoaderStatus NewValue);
+	UFUNCTION()
+	void PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderStatus OldValue, EGFPakLoaderStatus NewValue);
 
 	/**
 	 * Our override of IPluginManager::RegisterMountPointDelegate allowing us to stop the creation of wrong MountPoints for our PakPlugins.

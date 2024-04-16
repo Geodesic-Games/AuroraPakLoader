@@ -30,7 +30,7 @@ enum class EGFPakLoaderStatus : uint8
 };
 
 typedef EGFPakLoaderStatus EGFPakLoaderPreviousStatus;
-DECLARE_MULTICAST_DELEGATE_ThreeParams(FOnStatusChanged, class UGFPakPlugin*, EGFPakLoaderPreviousStatus /* OldValue */, EGFPakLoaderStatus /* NewValue */);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnStatusChanged, class UGFPakPlugin*, PakPlugin, EGFPakLoaderStatus, OldValue, EGFPakLoaderStatus, NewValue);
 
 DECLARE_DELEGATE_TwoParams(FOperationCompleted, bool /*bSuccessful*/, const TOptional<UE::GameFeatures::FResult>& /*Result*/);
 
@@ -226,6 +226,12 @@ public:
 	 */
 	const FAssetRegistryState* GetPluginAssetRegistry() const { return Status >= EGFPakLoaderStatus::Mounted ? PluginAssetRegistry.GetPtrOrNull() : nullptr; }
 
+	/**
+	 * Returns the FAssetData pointing to the UGameFeatureData of this GFPakPlugin.
+	 * Only Valid if Status is >= `Mounted` and if the plugin is a GameFeatures plugin.
+	 */
+	const FAssetData* GetGameFeatureData() const;
+	
 	FORCEINLINE UGFPakLoaderSubsystem* GetSubsystem() const;
 protected:
 	EGFPakLoaderStatus PreviouslyBroadcastedStatus = EGFPakLoaderStatus::NotInitialized;
@@ -277,6 +283,7 @@ private:
 	TArray<TSharedPtr<FPluginMountPoint>> PakPluginMountPoints;
 	IPakFile* MountedPakFile = nullptr;
 
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Status Changed", meta = (AllowPrivateAccess))
 	FOnStatusChanged OnStatusChangedDelegate;
 
 	TOptional<FAssetRegistryState> PluginAssetRegistry;

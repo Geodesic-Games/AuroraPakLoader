@@ -11,6 +11,7 @@
 #include "GameFeaturesSubsystem.h"
 #include "GameMapsSettings.h"
 #include "GFPakLoaderLog.h"
+#include "GFPakLoaderSettings.h"
 #include "GFPakLoaderSubsystem.h"
 #include "IPlatformFilePak.h"
 #include "PluginDescriptor.h"
@@ -21,6 +22,7 @@
 #include "Engine/Level.h"
 #include "GameFramework/WorldSettings.h"
 #include "HAL/FileManagerGeneric.h"
+#include "Interfaces/IPluginManager.h"
 #include "Kismet/GameplayStatics.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/PathViews.h"
@@ -164,6 +166,38 @@ bool UGFPakPlugin::Mount()
 {
 	const bool Result = Mount_Internal();
 	BroadcastOnStatusChange(Status);
+	if (bIsGameFeaturesPlugin && Status == EGFPakLoaderStatus::Mounted && GetDefault<UGFPakLoaderSettings>()->bAutoMountPakPlugins)
+	{
+		const FAssetData* GFDataAsset = UGFPakPlugin::GetGameFeatureData();
+		UGameFeatureData* GFData = Cast<UGameFeatureData>(GFDataAsset->GetAsset());
+		if (ensure(GFData))
+		{
+			TSharedPtr<FJsonObject> PluginDescriptorJsonObject;
+#if WITH_EDITOR
+			PluginDescriptorJsonObject = PluginDescriptor.CachedJson;
+#else
+			FText OutFailReason;
+			FString JsonText;
+			if (FFileHelper::LoadFileToString(JsonText, *UPluginPath))
+			{
+				TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(JsonText);
+				if (!FJsonSerializer::Deserialize(Reader, PluginDescriptorJsonObject) || !PluginDescriptorJsonObject.IsValid())
+				{
+					PluginDescriptorJsonObject.Reset();
+				}
+			}
+#endif
+			if (PluginDescriptorJsonObject)
+			{
+				EBuiltInAutoState InitialState = UGameFeaturesSubsystem::DetermineBuiltInInitialFeatureState(PluginDescriptorJsonObject, this->PluginName);
+				if (InitialState == EBuiltInAutoState::Active)
+				{
+					const auto EmptyLambda = FOperationCompleted::CreateLambda([](const bool bSuccessful, const TOptional<UE::GameFeatures::FResult>& Result){});
+					ActivateGameFeature(EmptyLambda);
+				}
+			}
+		}
+	}
 	return Result;
 }
 
@@ -251,6 +285,27 @@ const TArray<const FAssetData*>& UGFPakPlugin::GetPluginAssetsOfClass(const FTop
 		return PluginAssetRegistry->GetAssetsByClassPathName(ClassPathName);
 	}
 	return EmptyAssetsData;
+}
+
+const FAssetData* UGFPakPlugin::GetGameFeatureData() const
+{
+	if (!PluginAssetRegistry)
+	{
+		return nullptr;
+	}
+	
+	TArray<const FAssetData*> AllGameFeaturesData = PluginAssetRegistry->GetAssetsByClassPathName(UGameFeatureData::StaticClass()->GetClassPathName());
+	const FAssetData** GameFeaturesData = Algo::FindByPredicate(AllGameFeaturesData, [](const FAssetData* AssetData)
+	{
+		if (ensure(AssetData))
+		{
+			const FString PackagePath = AssetData->PackagePath.ToString().Replace(TEXT("/"), TEXT(""));;
+			const FString AssetName = AssetData->AssetName.ToString();
+			return PackagePath == AssetName;
+		}
+		return false;
+	});
+	return GameFeaturesData ? *GameFeaturesData : nullptr;
 }
 
 UGFPakLoaderSubsystem* UGFPakPlugin::GetSubsystem() const
@@ -530,17 +585,7 @@ bool UGFPakPlugin::Mount_Internal()
 	// 4e. Ensure we have a valid GameFeaturesPlugin if we believe it should be one
 	if (bIsGameFeaturesPlugin && ensure(PluginAssetRegistry))
 	{
-		TArray<const FAssetData*> AllGameFeaturesData = PluginAssetRegistry->GetAssetsByClassPathName(UGameFeatureData::StaticClass()->GetClassPathName());
-		const FAssetData** GameFeaturesData = Algo::FindByPredicate(AllGameFeaturesData, [](const FAssetData* AssetData)
-		{
-			if (ensure(AssetData))
-			{
-				const FString PackagePath = AssetData->PackagePath.ToString().Replace(TEXT("/"), TEXT(""));;
-				const FString AssetName = AssetData->AssetName.ToString();
-				return PackagePath == AssetName;
-			}
-			return false;
-		});
+		const FAssetData* GameFeaturesData = GetGameFeatureData();
 		if (!GameFeaturesData)
 		{
 			UE_LOG(LogGFPakLoader, Warning, TEXT("  %s: The Pak Plugin is a GameFeatures plugin but was not packaged is a UGameFeatureData asset at the root of its Content directory. The GameFeatures specific actions might not work."), *BaseErrorMessage)

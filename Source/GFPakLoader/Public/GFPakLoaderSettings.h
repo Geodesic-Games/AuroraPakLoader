@@ -26,8 +26,26 @@ public:
 #endif
 	//~End UDeveloperSettings
 
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Settings")
 	void SetPakLoadPath(const FString& Path);
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader Settings")
 	FString GetAbsolutePakLoadPath() const;
+
+	/**
+	 * If true, the GFPakLoaderSubsystem will add all the PakPlugins found in the StartupPakLoadDirectory.
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
+	bool bAddPakPluginsFromStartupLoadDirectory = true;
+	/**
+	 * If true, the GFPakLoaderSubsystem will automatically mount all the Pak Plugins added to the subsystem.
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
+	bool bAutoMountPakPlugins = true;
+	/**
+	 * If true, the GFPakLoaderSubsystem will automatically activate the GameFeatures of supported PakPlugins, if their settings is to be activated on load.
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
+	bool bAutoActivateGameFeatures = true;
 private:
 	/**
 	 * The Path to the Pak Plugin Directory to load at startup. Relative to the project directory if inside of it, otherwise this is a relative path.
