@@ -83,7 +83,7 @@ bool FPluginMountPoint::RegisterMountPoint()
 	}
 	if (Root.IsSet() || FailureReason == FPackageName::EErrorCode::PackageNamePathNotMounted)
 	{
-		UE_LOG(LogGFPakLoader, Log, TEXT("About to register Mount Point  '%s' => '%s'"), *RootPath, *ContentPath);
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("About to register Mount Point  '%s' => '%s'"), *RootPath, *ContentPath);
 		if (!FPackageName::MountPointExists(RootPath))
 		{
 			FPackageName::RegisterMountPoint(RootPath, ContentPath);
@@ -108,7 +108,7 @@ bool FPluginMountPoint::UnregisterMountPoint()
 {
 	if (bNeedsUnregistering)
 	{
-		UE_LOG(LogGFPakLoader, Log, TEXT("About to unregister Mount Point  '%s' => '%s'"), *RootPath, *ContentPath);
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("About to unregister Mount Point  '%s' => '%s'"), *RootPath, *ContentPath);
 		FPackageName::UnRegisterMountPoint(RootPath, ContentPath);
 		bNeedsUnregistering = false;
 		return true;

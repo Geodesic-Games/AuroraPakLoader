@@ -123,8 +123,8 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 
 	const int NbAddedPlugins = GameFeaturesPakPlugins.Num() - NbPrePlugins;
 	const int NbReferencedPlugins = Plugins.Num() - NbAddedPlugins;
-	UE_CLOG(NbAddedPlugins > 0, LogGFPakLoader, Log, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
-		NbAddedPlugins, NbReferencedPlugins, NbFailed)
+	UE_CLOG(NbAddedPlugins > 0, LogGFPakLoader, Log, TEXT("Adding Pak Plugins located in the folder '%s': %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
+		*PakPluginFolder, NbAddedPlugins, NbReferencedPlugins, NbFailed)
 	UE_CLOG(NbAddedPlugins == 0, LogGFPakLoader, VeryVerbose, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
 		NbAddedPlugins, NbReferencedPlugins, NbFailed)
 	return Plugins;
@@ -191,7 +191,7 @@ TSharedPtr<FPluginMountPoint> UGFPakLoaderSubsystem::AddOrCreateMountPointFromCo
 	TOptional<FPluginMountPoint> ContentMountPoint = FPluginMountPoint::CreateFromContentPath(InContentPath);
 	if (ContentMountPoint)
 	{
-		UE_LOG(LogGFPakLoader, Log, TEXT("     => Added %sMountPoint:  '%s' => '%s'"),
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("     => Added %sMountPoint:  '%s' => '%s'"),
 				ContentMountPoint->NeedsUnregistering() ? TEXT("") : TEXT("Existing "), *ContentMountPoint->GetRootPath(), *ContentMountPoint->GetContentPath())
 		
 		// Here we create a shared Pointer with a custom Deleter as we statically keep track of the MountPoints.
@@ -201,7 +201,7 @@ TSharedPtr<FPluginMountPoint> UGFPakLoaderSubsystem::AddOrCreateMountPointFromCo
 			if (ensure(DeletedMountPoint))
 			{
 				MountPoints.Remove(DeletedMountPoint->GetContentPath());
-				UE_LOG(LogGFPakLoader, Log, TEXT("Deleted FPluginMountPoint from Subsystem:  '%s' => '%s'"), *DeletedMountPoint->GetRootPath(), *DeletedMountPoint->GetContentPath())
+				UE_LOG(LogGFPakLoader, Verbose, TEXT("Deleted FPluginMountPoint from Subsystem:  '%s' => '%s'"), *DeletedMountPoint->GetRootPath(), *DeletedMountPoint->GetContentPath())
 				UE_LOG(LogGFPakLoader, Verbose, TEXT("UGFPakLoaderSubsystem::MountPoints.Remove():  %d Mount Points"), MountPoints.Num())
 				if (DeletedMountPoint->NeedsUnregistering())
 				{
