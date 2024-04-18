@@ -26,6 +26,7 @@ public class GFPakLoader : ModuleRules
 			{
 				"Core",
 				"AssetRegistry",
+				"Projects",
 			}
 		);
 		PrivateDependencyModuleNames.AddRange(
@@ -45,6 +46,7 @@ public class GFPakLoader : ModuleRules
 		if (Target.bBuildEditor)
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");
+			PrivateDependencyModuleNames.Add( "TypedElementRuntime");
 		}
 
 		DynamicallyLoadedModuleNames.AddRange(

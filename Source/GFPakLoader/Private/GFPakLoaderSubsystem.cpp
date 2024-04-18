@@ -100,7 +100,7 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 		return {};
 	}
 	
-	UE_LOG(LogGFPakLoader, Log, TEXT("Adding Pak Plugins located in the folder '%s'..."), *PakPluginFolder)
+	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT("Adding Pak Plugins located in the folder '%s'..."), *PakPluginFolder)
 	const int NbPrePlugins = GameFeaturesPakPlugins.Num();
 	
 	IFileManager& FileManager = IFileManager::Get();
@@ -125,29 +125,30 @@ TArray<UGFPakPlugin*> UGFPakLoaderSubsystem::AddPakPluginFolder(const FString& I
 	const int NbReferencedPlugins = Plugins.Num() - NbAddedPlugins;
 	UE_CLOG(NbAddedPlugins > 0, LogGFPakLoader, Log, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
 		NbAddedPlugins, NbReferencedPlugins, NbFailed)
-	UE_CLOG(NbAddedPlugins == 0, LogGFPakLoader, Verbose, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
+	UE_CLOG(NbAddedPlugins == 0, LogGFPakLoader, VeryVerbose, TEXT("... %d Pak Plugins were added, %d Plugins were already referenced by the subsystem, and %d folders were not valid Pak Plugin folders"),
 		NbAddedPlugins, NbReferencedPlugins, NbFailed)
 	return Plugins;
 }
 
 UGFPakPlugin* UGFPakLoaderSubsystem::AddPakPlugin(const FString& InPakPluginPath)
 {
+	FString PakPluginPath = FPaths::ConvertRelativePathToFull(InPakPluginPath);
 	if (!IsReady())
 	{
-		UE_LOG(LogGFPakLoader, Error, TEXT("UGFPakLoaderSubsystem is not ready. Unable to AddPakPlugin '%s'"), *InPakPluginPath)
+		UE_LOG(LogGFPakLoader, Error, TEXT("UGFPakLoaderSubsystem is not ready. Unable to AddPakPlugin '%s'"), *PakPluginPath)
 		return {};
 	}
 	
 	UGFPakPlugin** ExistingPakPlugin = Algo::FindByPredicate(GameFeaturesPakPlugins,
-		[&InPakPluginPath](const UGFPakPlugin* PakPlugin)
+		[&PakPluginPath](const UGFPakPlugin* PakPlugin)
 		{
-			return FPaths::IsSamePath(PakPlugin->GetPakPluginDirectory(), InPakPluginPath);
+			return FPaths::IsSamePath(PakPlugin->GetPakPluginDirectory(), PakPluginPath);
 		});
 	
 	if (!ExistingPakPlugin)
 	{
 		UGFPakPlugin* PakPlugin = NewObject<UGFPakPlugin>(this);
-		PakPlugin->SetPakPluginDirectory(InPakPluginPath);
+		PakPlugin->SetPakPluginDirectory(PakPluginPath);
 		if (PakPlugin->LoadPluginData())
 		{
 			GameFeaturesPakPlugins.Emplace(PakPlugin);

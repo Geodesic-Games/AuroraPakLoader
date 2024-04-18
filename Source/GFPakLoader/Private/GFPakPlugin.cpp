@@ -5,12 +5,12 @@
 
 #include "ComponentRecreateRenderStateContext.h"
 #include "ComponentReregisterContext.h"
-#include "GFPakLoaderPlatformFile.h"
 #include "GameFeatureData.h"
 #include "GameFeaturePluginOperationResult.h"
 #include "GameFeaturesSubsystem.h"
 #include "GameMapsSettings.h"
 #include "GFPakLoaderLog.h"
+#include "GFPakLoaderPlatformFile.h"
 #include "GFPakLoaderSettings.h"
 #include "GFPakLoaderSubsystem.h"
 #include "IPlatformFilePak.h"
@@ -31,7 +31,14 @@
 #if WITH_EDITOR
 #include "ObjectTools.h"
 #include "PackageTools.h"
+#include "Selection.h"
+#include "Editor/Transactor.h"
+#include "Elements/Interfaces/TypedElementSelectionInterface.h"
+#include "Kismet2/KismetEditorUtilities.h"
 #endif
+
+#define LOCTEXT_NAMESPACE "FGFPakLoaderModule"
+
 
 class FPakFileLister : public IPlatformFile::FDirectoryVisitor
 {
@@ -574,7 +581,25 @@ bool UGFPakPlugin::Mount_Internal()
 		UE_LOG(LogGFPakLoader, Log, TEXT("  AssetRegistry Loaded from '%s': %d Assets in %d Packages"), *AssetRegistryPath, PluginAssetRegistry->GetNumAssets(), PluginAssetRegistry->GetNumPackages());
 
 		IAssetRegistry& AssetRegistry = UAssetManager::Get().GetAssetRegistry();
-		AssetRegistry.AppendState(*PluginAssetRegistry);
+#if WITH_EDITOR
+		UWorld* World = GetWorld();
+		UEditorEngine* EditorEngine = Cast<UEditorEngine>(GEngine);
+		// In PIE, we don't want the Editor Engine to load the DLC Maps which it will do by default when new World Assets are loaded
+		// to avoid this, we remove its delegate before adding the assets to the registry, then we revert the delegate list
+		if (World && World->IsPlayInEditor() && EditorEngine)
+		{
+			TMulticastDelegate<void(UObject*)> OnAssetLoadedDelegates = FCoreUObjectDelegates::OnAssetLoaded; // Make a copy of all delegates
+			FCoreUObjectDelegates::OnAssetLoaded.RemoveAll(EditorEngine); // Remove the EditorEngine one, this would call UEditorEngine::OnAssetLoaded
+			
+			AssetRegistry.AppendState(*PluginAssetRegistry); // Add the assets, this will trigger FCoreUObjectDelegates::OnAssetLoaded
+			
+			FCoreUObjectDelegates::OnAssetLoaded = OnAssetLoadedDelegates; // Revert
+		}
+		else
+#endif
+		{
+			AssetRegistry.AppendState(*PluginAssetRegistry);
+		}
 	}
 	else
 	{
@@ -591,6 +616,26 @@ bool UGFPakPlugin::Mount_Internal()
 			UE_LOG(LogGFPakLoader, Warning, TEXT("  %s: The Pak Plugin is a GameFeatures plugin but was not packaged is a UGameFeatureData asset at the root of its Content directory. The GameFeatures specific actions might not work."), *BaseErrorMessage)
 			UE_LOG(LogGFPakLoader, Warning, TEXT("  bIsGameFeaturePlugin: '%s'"), bIsGameFeaturesPlugin ? TEXT("TRUE") : TEXT("FALSE"))
 			bIsGameFeaturesPlugin = false;
+		}
+	}
+
+	// 5. Register the plugin with the Plugin Manager
+	{
+		FText FailReason;
+		{
+			// For UGFPakLoaderSubsystem::RegisterMountPoint to not register the wrong mount point in FPluginManager::MountPluginFromExternalSource, we need to have the plugin status to Mounted
+			TOptionalGuardValue<EGFPakLoaderPreviousStatus> TemporaryStatus(Status, EGFPakLoaderStatus::Mounted);
+			PluginInterface = LoadPlugin(UPluginPath);
+		}
+		if (PluginInterface)
+		{
+			UE_LOG(LogGFPakLoader, Log, TEXT("  Successfully loaded plugin from UPlugin '%s'!"), *UPluginPath)
+		}
+		else
+		{
+			UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to add the UPlugin '%s' to the plugins list:  '%s'"), *BaseErrorMessage, *UPluginPath, *FailReason.ToString())
+			Unmount_Internal();
+			return false;
 		}
 	}
 	
@@ -925,6 +970,19 @@ bool UGFPakPlugin::Unmount_Internal()
 	}
 
 	UE_LOG(LogGFPakLoader, Log, TEXT("Unmounting the Pak Plugin '%s'..."), *PakFilePath)
+	if (PluginInterface)
+	{
+		FText FailReason;
+		if (UnloadPlugin(PluginInterface.ToSharedRef(), &FailReason))
+		{
+			UE_LOG(LogGFPakLoader, Log, TEXT("  UPlugin '%s' unloaded"), *PluginName)
+		}
+		else
+		{
+			UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to unload the Plugin '%s':  '%s'"), *BaseErrorMessage, *PluginName, *FailReason.ToString())
+		}
+		PluginInterface = nullptr;
+	}
 	UnloadPakPluginObjects_Internal(FOperationCompleted::CreateLambda([WeakThis = TWeakObjectPtr<UGFPakPlugin>(this), PakFilePath = PakFilePath]
 		(const bool bSuccessful, const TOptional<UE::GameFeatures::FResult>& Result)
 	{
@@ -1095,3 +1153,514 @@ bool UGFPakPlugin::PurgeObject(UObject* Object, const TFunctionRef<bool(UObject*
 	}
 	return true;
 }
+
+TSharedPtr<IPlugin> UGFPakPlugin::LoadPlugin(const FString& PluginFilePath, FText* OutFailReason)
+{
+	if (!FPaths::FileExists(PluginFilePath))
+	{
+		if (OutFailReason)
+		{
+			*OutFailReason = FText::Format(LOCTEXT("PluginFileDoesNotExist", "Plugin file does not exist\n{0}"), FText::FromString(FPaths::ConvertRelativePathToFull(PluginFilePath)));
+		}
+		return nullptr;
+	}
+	
+	const FString PluginName = FPaths::GetBaseFilename(PluginFilePath);
+	const FString PluginLocation = FPaths::GetPath(FPaths::GetPath(PluginFilePath));
+	// return PluginUtils::LoadPluginInternal(PluginName, PluginLocation, PluginFileName, LoadParams, /*bIsNewPlugin*/ false);
+	
+	if (!IPluginManager::Get().AddToPluginsList(PluginFilePath, OutFailReason))
+	{
+		return nullptr;
+	}
+
+	// Find the plugin in the manager.
+	TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName);
+	if (!Plugin)
+	{
+		if (OutFailReason)
+		{
+			*OutFailReason = FText::Format(LOCTEXT("FailedToRegisterPlugin", "Failed to register plugin\n{0}"), FText::FromString(PluginFilePath));
+		}
+		return nullptr;
+	}
+
+	// Double check the path matches
+	if (!FPaths::IsSamePath(Plugin->GetDescriptorFileName(), PluginFilePath))
+	{
+		if (OutFailReason)
+		{
+			const FString PluginFilePathFull = FPaths::ConvertRelativePathToFull(Plugin->GetDescriptorFileName());
+			*OutFailReason = FText::Format(LOCTEXT("PluginNameAlreadyUsed", "There's already a plugin named {0} at this location:\n{1}"), FText::FromString(PluginName), FText::FromString(PluginFilePathFull));
+		}
+		return nullptr;
+	}
+	
+	const FString PluginRootFolder = Plugin->CanContainContent() ? Plugin->GetMountedAssetPath() : FString();
+	bool bOutAlreadyLoaded = Plugin->IsEnabled() && (PluginRootFolder.IsEmpty() || FPackageName::MountPointExists(PluginRootFolder));
+	if (!bOutAlreadyLoaded)
+	{
+		// Mount the new plugin (mount content folder if any and load modules if any)
+		IPluginManager::Get().MountExplicitlyLoadedPlugin(PluginName);
+		if (!Plugin->IsEnabled())
+		{
+			if (OutFailReason)
+			{
+				*OutFailReason = FText::Format(LOCTEXT("FailedToEnablePlugin", "Failed to enable plugin because it is not configured as bExplicitlyLoaded=true\n{0}"), FText::FromString(PluginFilePath));
+			}
+			return nullptr;
+		}
+	}
+
+	return Plugin;
+}
+
+bool UGFPakPlugin::UnloadPlugin(const TSharedRef<IPlugin>& Plugin, FText* OutFailReason)
+{
+	const TConstArrayView<TSharedRef<IPlugin>> Plugins {Plugin};
+	{
+		FText ErrorMsg;
+		if (!UnloadPluginsAssets(Plugins, &ErrorMsg))
+		{
+			// If some assets fail to unload, log an error, but unmount the plugins anyway
+			UE_LOG(LogGFPakLoader, Error, TEXT("Failed to unload some assets prior to unmounting plugins\n%s"), *ErrorMsg.ToString());
+		}
+	}
+	
+	// Unmount the plugins
+	//
+	bool bSuccess = true;
+	{
+		FTextBuilder ErrorBuilder;
+		bool bPluginUnmounted = false;
+		
+		if (Plugin->IsEnabled())
+		{
+			bPluginUnmounted = true;
+
+			FText FailReason;
+			if (!IPluginManager::Get().UnmountExplicitlyLoadedPlugin(Plugin->GetName(), &FailReason))
+			{
+				UE_LOG(LogGFPakLoader, Error, TEXT("Plugin %s cannot be unloaded: %s"), *Plugin->GetName(), *FailReason.ToString());
+				ErrorBuilder.AppendLine(FailReason);
+				bSuccess = false;
+			}
+		}
+		
+
+		if (bPluginUnmounted)
+		{
+			IPluginManager::Get().RefreshPluginsList();
+		}
+
+		if (!bSuccess && OutFailReason)
+		{
+			*OutFailReason = ErrorBuilder.ToText();
+		}
+	}
+	return bSuccess;
+}
+
+bool UGFPakPlugin::UnloadPluginsAssets(const TConstArrayView<TSharedRef<IPlugin>> Plugins, FText* OutFailReason)
+{
+	TSet<FString> PluginNames;
+	PluginNames.Reserve(Plugins.Num());
+	for (const TSharedRef<IPlugin>& Plugin : Plugins)
+	{
+		PluginNames.Add(Plugin->GetName());
+	}
+
+	return UnloadPluginsAssets(PluginNames, OutFailReason);
+}
+
+bool UGFPakPlugin::UnloadPluginsAssets(const TSet<FString>& PluginNames, FText* OutFailReason)
+{
+	bool bSuccess = true;
+	if (!PluginNames.IsEmpty())
+	{
+		const double StartTime = FPlatformTime::Seconds();
+
+		TArray<UPackage*> PackagesToUnload;
+		for (TObjectIterator<UPackage> It; It; ++It)
+		{
+			const FNameBuilder PackageName(It->GetFName());
+			const FStringView PackageMountPointName = FPathViews::GetMountPointNameFromPath(PackageName);
+			if (PluginNames.ContainsByHash(GetTypeHash(PackageMountPointName), PackageMountPointName))
+			{
+				PackagesToUnload.Add(*It);
+			}
+		}
+
+		if (PackagesToUnload.Num() > 0)
+		{
+			FText ErrorMsg;
+			UnloadPackages(PackagesToUnload, ErrorMsg, /*bUnloadDirtyPackages=*/true);
+
+			// @note UnloadPackages returned bool indicates whether some packages were unloaded
+			// To tell whether all packages were successfully unloaded we must check the ErrorMsg output param
+			if (!ErrorMsg.IsEmpty())
+			{
+				if (OutFailReason)
+				{
+					*OutFailReason = MoveTemp(ErrorMsg);
+				}
+				bSuccess = false;
+			}
+		}
+
+		UE_LOG(LogGFPakLoader, Log, TEXT("Unloading assets from %d plugins took %0.2f sec"), PluginNames.Num(), FPlatformTime::Seconds() - StartTime);
+	}
+	return bSuccess;
+}
+
+
+#if WITH_EDITOR
+/** State passed to RestoreStandaloneOnReachableObjects. */
+TSet<UPackage*>* UGFPakPlugin::PackagesBeingUnloaded = nullptr;
+TSet<UObject*> UGFPakPlugin::ObjectsThatHadFlagsCleared;
+FDelegateHandle UGFPakPlugin::ReachabilityCallbackHandle;
+#endif
+
+
+bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutErrorMessage, bool bUnloadDirtyPackages)
+{
+	// Early out if no package is provided
+	if (Packages.IsEmpty())
+	{
+		return true;
+	}
+
+	bool bResult = false;
+
+	// Get outermost packages, in case groups were selected.
+	TSet<UPackage*> PackagesToUnload;
+	
+	// Split the set of selected top level packages into packages which are dirty (and thus cannot be unloaded)
+	// and packages that are not dirty (and thus can be unloaded).
+	TArray<UPackage*> DirtyPackages;
+	for (UPackage* TopLevelPackage : Packages)
+	{
+		if (TopLevelPackage)
+		{
+			if (!bUnloadDirtyPackages && TopLevelPackage->IsDirty())
+			{
+				DirtyPackages.Add(TopLevelPackage);
+			}
+			else
+			{
+				UPackage* PackageToUnload = TopLevelPackage->GetOutermost();
+				if (!PackageToUnload)
+				{
+					PackageToUnload = TopLevelPackage;
+				}
+				PackagesToUnload.Add(PackageToUnload);
+			}
+		}
+	}
+	// Inform the user that dirty packages won't be unloaded.
+	if ( DirtyPackages.Num() > 0 )
+	{
+		FString DirtyPackagesList;
+		for (UPackage* DirtyPackage : DirtyPackages)
+		{
+			DirtyPackagesList += FString::Printf(TEXT("\n    %s"), *(DirtyPackage->GetName()));
+		}
+
+		FFormatNamedArguments Args;
+		Args.Add(TEXT("DirtyPackages"), FText::FromString(DirtyPackagesList));
+
+		OutErrorMessage = FText::Format( LOCTEXT("UnloadDirtyPackagesList", "The following assets have been modified and cannot be unloaded:{DirtyPackages}\nSaving these assets will allow them to be unloaded."), Args );
+	}
+#if WITH_EDITOR
+	if (GEditor)
+	{
+		if (UWorld* EditorWorld = GEditor->GetEditorWorldContext().World())
+		{
+			// Is the current world being unloaded?
+			if (PackagesToUnload.Contains(EditorWorld->GetPackage()))
+			{
+				TArray<TWeakObjectPtr<UPackage>> WeakPackages;
+				WeakPackages.Reserve(PackagesToUnload.Num());
+				for (UPackage* Package : PackagesToUnload)
+				{
+					WeakPackages.Add(Package);
+				}
+
+				// Unload the current world
+				GEditor->CreateNewMapForEditing();
+
+				// Remove stale entries in PackagesToUnload (unloaded world, level build data, streaming levels, external actors, etc)
+				PackagesToUnload.Reset();
+				for (const TWeakObjectPtr<UPackage>& WeakPackage : WeakPackages)
+				{
+					if (UPackage* Package = WeakPackage.Get())
+					{
+						PackagesToUnload.Add(Package);
+					}
+				}
+			}
+		}
+	}
+	else
+	{
+		return bResult;
+	}
+#endif
+
+	if (PackagesToUnload.Num() > 0)
+	{
+		// Complete any load/streaming requests, then lock IO.
+		FlushAsyncLoading();
+		(*GFlushStreamingFunc)();
+
+		GWarn->BeginSlowTask(NSLOCTEXT("UnrealEd", "Unloading", "Unloading"), true);
+
+#if WITH_EDITOR
+		if (GEditor)
+		{
+			// Remove potential references to to-be deleted objects from the GB selection set.
+			GEditor->GetSelectedObjects()->GetElementSelectionSet()->ClearSelection(FTypedElementSelectionOptions());
+
+			// Clear undo history because transaction records can hold onto assets we want to unload
+			if (GEditor->Trans) //  && Params.bResetTransBuffer
+			{
+				GEditor->Trans->Reset(LOCTEXT("UnloadPackagesResetUndo", "Unload Assets"));
+			}
+		}
+#endif
+		// First add all packages to unload to the root set so they don't get garbage collected while we are operating on them
+		TArray<UPackage*> PackagesAddedToRoot;
+		for (UPackage* PackageToUnload : PackagesToUnload)
+		{
+			if (!PackageToUnload->IsRooted())
+			{
+				PackageToUnload->AddToRoot();
+				PackagesAddedToRoot.Add(PackageToUnload);
+			}
+		}
+#if WITH_EDITOR
+		// We need to make sure that there is no async compilation work running for the packages that we are about to unload
+		// so that it is safe to call ::ResetLoaders
+		UPackageTools::FlushAsyncCompilation(PackagesToUnload.Array());
+#endif
+		
+		// Now try to clean up assets in all packages to unload.
+		bool bScriptPackageWasUnloaded = false;
+		int32 PackageIndex = 0;
+		for (UPackage* PackageBeingUnloaded : PackagesToUnload)
+		{
+			GWarn->StatusUpdate(PackageIndex++, PackagesToUnload.Num(), FText::Format(LOCTEXT("Unloadingf", "Unloading {0}..."), FText::FromString(PackageBeingUnloaded->GetName()) ) );
+
+			// Flush all pending render commands, as unloading the package may invalidate render resources.
+			FlushRenderingCommands();
+
+			TArray<UObject*> ObjectsInPackage;
+
+#if WITH_EDITOR
+			// Can't use ForEachObjectWithPackage here as closing the editor may modify UObject hash tables (known case: renaming objects)
+			GetObjectsWithPackage(PackageBeingUnloaded, ObjectsInPackage, false);
+			// Close any open asset editors.
+			for (UObject* Obj : ObjectsInPackage)
+			{
+				if (Obj->IsAsset())
+				{
+					GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->CloseAllEditorsForAsset(Obj);
+				}
+			}
+			ObjectsInPackage.Reset();
+
+			PackageBeingUnloaded->MarkAsUnloaded();
+#endif
+			if ( PackageBeingUnloaded->HasAnyPackageFlags(PKG_ContainsScript) )
+			{
+				bScriptPackageWasUnloaded = true;
+			}
+
+			GetObjectsWithPackage(PackageBeingUnloaded, ObjectsInPackage, true, RF_Transient, EInternalObjectFlags::Garbage);
+			// Notify any Blueprints and other systems that are about to be unloaded, also destroy any leftover worlds.
+			for (UObject* Obj : ObjectsInPackage)
+			{
+				// Asset manager can hold hard references to this object and prevent GC
+				if (true) //PackageTools_Private::bUnloadPackagesUnloadsPrimaryAssets
+				{
+					const FPrimaryAssetId PrimaryAssetId = UAssetManager::Get().GetPrimaryAssetIdForObject(Obj);
+					if (PrimaryAssetId.IsValid())
+					{
+						UAssetManager::Get().UnloadPrimaryAsset(PrimaryAssetId);
+					}
+				}
+
+#if WITH_EDITOR
+				if (UBlueprint* BP = Cast<UBlueprint>(Obj))
+				{
+					BP->ClearEditorReferences();
+
+					// Remove from cached dependent lists.
+					for (const TWeakObjectPtr<UBlueprint> Dependency : BP->CachedDependencies)
+					{
+						if (UBlueprint* ResolvedDependency = Dependency.Get())
+						{
+							ResolvedDependency->CachedDependents.Remove(BP);
+						}
+					}
+
+					BP->CachedDependencies.Reset();
+
+					// Remove from cached dependency lists.
+					for (const TWeakObjectPtr<UBlueprint> Dependent : BP->CachedDependents)
+					{
+						if (UBlueprint* ResolvedDependent = Dependent.Get())
+						{
+							ResolvedDependent->CachedDependencies.Remove(BP);
+						}
+					}
+
+					BP->CachedDependents.Reset();
+				}
+				else if (UBlueprintGeneratedClass* BPGC = Cast<UBlueprintGeneratedClass>(Obj))
+				{
+					FKismetEditorUtilities::OnBlueprintGeneratedClassUnloaded.Broadcast(BPGC);
+				}
+				else
+#endif
+				if (UWorld* World = Cast<UWorld>(Obj))
+				{
+					if (World->bIsWorldInitialized)
+					{
+						World->CleanupWorld();
+					}
+				}
+			}
+			ObjectsInPackage.Reset();
+
+			// Clear RF_Standalone flag from objects in the package to be unloaded so they get GC'd.
+			{
+				GetObjectsWithPackage(PackageBeingUnloaded, ObjectsInPackage);
+				for ( UObject* Object : ObjectsInPackage )
+				{
+					if (Object->HasAnyFlags(RF_Standalone))
+					{
+						Object->ClearFlags(RF_Standalone);
+#if WITH_EDITOR
+						ObjectsThatHadFlagsCleared.Add(Object);
+#endif
+					}
+				}
+				ObjectsInPackage.Reset();
+			}
+
+			// Cleanup.
+			bResult = true;
+		}
+
+		// Calling ::ResetLoaders now will force any bulkdata objects still attached to the FLinkerLoad to load
+		// their payloads into memory. If we don't call this now, then the version that will be called during
+		// garbage collection will cause the bulkdata objects to be invalidated rather than loading the payloads 
+		// into memory.
+		// This might seem odd, but if the package we are unloading is being renamed, then the inner UObjects will
+		// be moved to the newly named package rather than being garbage collected and so we need to make sure that
+		// their bulkdata objects remain valid, otherwise renamed packages will not save correctly and cease to function.
+		ResetLoaders(TArray<UObject*>(PackagesToUnload.Array()));
+
+		for (UPackage* PackageBeingUnloaded : PackagesToUnload)
+		{
+			if (PackageBeingUnloaded->IsDirty())
+			{
+				// The package was marked dirty as a result of something that happened above (e.g callbacks in CollectGarbage).  
+				// Dirty packages we actually care about unloading were filtered above so if the package becomes dirty here it should still be unloaded
+				PackageBeingUnloaded->SetDirtyFlag(false);
+			}
+		}
+
+#if WITH_EDITOR
+		// Set the callback for restoring RF_Standalone post reachability analysis.
+		// GC will call this function before purging objects, allowing us to restore RF_Standalone
+		// to any objects that have not been marked RF_Unreachable.
+		ReachabilityCallbackHandle = FCoreUObjectDelegates::PostReachabilityAnalysis.AddStatic(RestoreStandaloneOnReachableObjects);
+
+		PackagesBeingUnloaded = &PackagesToUnload;
+#endif
+		// Collect garbage.
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+#if WITH_EDITOR
+		ObjectsThatHadFlagsCleared.Empty();
+		PackagesBeingUnloaded = nullptr;
+#endif
+		// Now remove from root all the packages we added earlier so they may be GCed if possible
+		for (UPackage* PackageAddedToRoot : PackagesAddedToRoot)
+		{
+			PackageAddedToRoot->RemoveFromRoot();
+		}
+		PackagesAddedToRoot.Empty();
+
+		GWarn->EndSlowTask();
+
+#if WITH_EDITOR
+		// Remove the post reachability callback.
+		FCoreUObjectDelegates::PostReachabilityAnalysis.Remove(ReachabilityCallbackHandle);
+#endif
+
+#if WITH_EDITORONLY_DATA
+		// Clear the standalone flag on metadata objects that are going to be GC'd below.
+		// This resolves the circular dependency between metadata and packages.
+		TArray<TWeakObjectPtr<UMetaData>> PackageMetaDataWithClearedStandaloneFlag;
+		for (UPackage* PackageToUnload : PackagesToUnload)
+		{
+			UMetaData* PackageMetaData = PackageToUnload ? PackageToUnload->GetMetaData() : nullptr;
+			if ( PackageMetaData && PackageMetaData->HasAnyFlags(RF_Standalone) )
+			{
+				PackageMetaData->ClearFlags(RF_Standalone);
+				PackageMetaDataWithClearedStandaloneFlag.Add(PackageMetaData);
+			}
+		}
+#endif
+		
+		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS );
+		FlushRenderingCommands();
+		
+#if WITH_EDITORONLY_DATA
+		// Restore the standalone flag on any metadata objects that survived the GC
+		for ( const TWeakObjectPtr<UMetaData>& WeakPackageMetaData : PackageMetaDataWithClearedStandaloneFlag )
+		{
+			UMetaData* MetaData = WeakPackageMetaData.Get();
+			if ( MetaData )
+			{
+				MetaData->SetFlags(RF_Standalone);
+			}
+		}
+#endif
+		
+#if WITH_EDITOR
+		// Update the actor browser if a script package was unloaded
+		if ( bScriptPackageWasUnloaded )
+		{
+			GEditor->BroadcastClassPackageLoadedOrUnloaded();
+		}
+#endif
+	}
+	return bResult;
+}
+
+#if WITH_EDITOR
+void UGFPakPlugin::RestoreStandaloneOnReachableObjects()
+{
+	check(GIsEditor);
+
+	if (PackagesBeingUnloaded && ObjectsThatHadFlagsCleared.Num() > 0)
+	{
+		for (UPackage* PackageBeingUnloaded : *PackagesBeingUnloaded)
+		{
+			ForEachObjectWithPackage(PackageBeingUnloaded, [](UObject* Object)
+			{
+				if (ObjectsThatHadFlagsCleared.Contains(Object))
+				{
+					Object->SetFlags(RF_Standalone);
+				}
+				return true;
+			}, true, RF_NoFlags, UE::GC::GUnreachableObjectFlag);
+		}
+	}
+}
+#endif
+
+#undef LOCTEXT_NAMESPACE

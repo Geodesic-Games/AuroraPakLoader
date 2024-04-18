@@ -2,11 +2,12 @@
 
 #pragma once
 
-#include <GameFeaturePluginOperationResult.h>
+#include "GameFeaturePluginOperationResult.h"
 #include "PluginDescriptor.h"
 #include "PluginMountPoint.h"
 #include "AssetRegistry/AssetRegistryState.h"
 #include "Engine/World.h"
+#include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
 #include "GFPakPlugin.generated.h"
 
@@ -291,6 +292,8 @@ private:
 	bool bNeedGameFeatureUnloading = false;
 	TArray<FOperationCompleted> AdditionalActivationDelegate;
 	TArray<FOperationCompleted> AdditionalDeactivationDelegate;
+
+	TSharedPtr<IPlugin> PluginInterface = nullptr;
 private:
 
 	// Internal functions that do all the work but do not broadcast the change of Status
@@ -311,4 +314,52 @@ private:
 	{
 		return TEXT("Error ") + Action + TEXT(" the Pak Plugin data for directory '") + PakPluginDirectory + TEXT("'");
 	}
+
+private: // adjusted functions of FPluginUtils::LoadPlugin, FPluginUtils::UnloadPlugin and UPackageTools::UnloadPackages to run at runtime
+	/**
+	 * Adjusted version of FPluginUtils::LoadPlugin for GF Pak Plugin, also working at runtime
+	 * @return IPlugin if successful, otherwise null
+	 */
+	static TSharedPtr<IPlugin> LoadPlugin(const FString& UPluginFileName, FText* OutFailReason = nullptr);
+	/**
+	 * Adjusted version of FPluginUtils::UnloadPlugin for GF Pak Plugin, also working at runtime
+	 */
+	static bool UnloadPlugin(const TSharedRef<IPlugin>& Plugin, FText* OutFailReason = nullptr);
+	/**
+	 * Adjusted version of FPluginUtils::UnloadPluginsAssets for GF Pak Plugin, also working at runtime
+	 * Unload assets from the specified plugins but does not unmount them
+	 * @warning Dirty assets that need to be saved will be unloaded anyway
+	 * @param Plugin Plugins to unload assets from
+	 * @param OutFailReason Outputs the reason of the failure if any
+	 * @return Whether plugin assets were successfully unloaded
+	 */
+	static bool UnloadPluginsAssets(const TConstArrayView<TSharedRef<IPlugin>> Plugins, FText* OutFailReason = nullptr);
+	/**
+	 * Adjusted version of FPluginUtils::UnloadPluginsAssets for GF Pak Plugin, also working at runtime
+	 * Unload assets from the specified plugin but does not unmount them
+	 * @warning Dirty assets that need to be saved will be unloaded anyway
+	 * @param PluginNames Names of the plugins to unload assets from
+	 * @param OutFailReason Outputs the reason of the failure if any
+	 * @return Whether plugin assets were successfully unloaded
+	 */
+	static bool UnloadPluginsAssets(const TSet<FString>& PluginNames, FText* OutFailReason = nullptr);
+	/**
+	 * Adjusted version of UPackageTools::UnloadPackages for GF Pak Plugin, also working at runtime
+	 * Helper function that attempts to unload the specified top-level packages.
+	 *
+	 * @param	PackagesToUnload		the list of packages that should be unloaded
+	 * @param	OutErrorMessage			An error message specifying any problems with unloading packages
+	 * @param	bUnloadDirtyPackages	Whether to unload packages that are dirty (that need to be saved)
+	 *
+	 * @return	true if the set of loaded packages was changed
+	 */
+	static bool UnloadPackages(const TArray<UPackage*>& PackagesToUnload, FText& OutErrorMessage, bool bUnloadDirtyPackages = false);
+
+#if WITH_EDITOR
+	static void RestoreStandaloneOnReachableObjects();
+
+	static TSet<UPackage*>* PackagesBeingUnloaded;
+	static TSet<UObject*> ObjectsThatHadFlagsCleared;
+	static FDelegateHandle ReachabilityCallbackHandle;
+#endif
 };
