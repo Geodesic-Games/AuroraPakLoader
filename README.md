@@ -1,4 +1,4 @@
-# GameFeature Pak Loader
+# Aurora Pak Loader
 
 Plugin to load Pak Plugin at runtime and activate their GameFeatures.
 Was not tested on worlds with WorldPartition enabled.
@@ -65,7 +65,7 @@ The setup is the same as the Base Game setup apart from the `Cook` settings:
       - *In `Advanced settings`, make sure that only `Compress Content`, `Save packages without versions` and `Store all content in a single file (UnrealPak)` are ticked*
   - [ ] *Change `Package` to `Package and store locally` and leave everything unticked*
   - [ ] *Leave `Archive` unticked and `Deploy` to `Do not Deploy`*
-  - [ ] Run this launch profile, it should be successful. The packaged plugin content should be (by default) in the plugin folder `\Saved\StagedBuilds\Windows\ForPackage\Plugins\GameFeatures\<plugin-name>\`. You can copy this folder (containing the `uplugin` and `Content` subfolder) somewhere else (by default in the `<ProjectFolder>/Stadiums`. **We will need to give the path of this folder (the path to `\<plugin-name>\`) to the GFLoader plugin to load this GameFeature**
+  - [ ] Run this launch profile, it should be successful. The packaged plugin content should be (by default) in the plugin folder `\Saved\StagedBuilds\Windows\ForPackage\Plugins\GameFeatures\<plugin-name>\`. You can copy this folder (containing the `uplugin` and `Content` subfolder) somewhere else (by default in the `<ProjectFolder>/Stadiums`. **We will need to give the path of this folder (the path to `\<plugin-name>\`) to the AuroraPakLoader plugin to load this GameFeature**
 
 ### Package the plugin
 
@@ -88,7 +88,7 @@ The current most reliable way is the following:
 
 ## Test the plugin
 
-By default, the GFPakLoader plugin will Mount all the Pak Plugins located in the `<ProjectFolder>/Stadiums` folder.
+By default, the AuroraPakLoader plugin will Mount all the Pak Plugins located in the `<ProjectFolder>/Stadiums` folder.
 If Play the level, the Output log should give you information about the mounting and loading process. Also, you should see the content of the pak file in the `Content` panel as a new Mounting Point was added in the `Source` folder.
 If you stop PIE, the content is will be unmounted.
 
