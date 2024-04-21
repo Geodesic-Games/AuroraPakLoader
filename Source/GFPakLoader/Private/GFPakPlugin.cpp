@@ -625,7 +625,7 @@ bool UGFPakPlugin::Mount_Internal()
 		{
 			// For UGFPakLoaderSubsystem::RegisterMountPoint to not register the wrong mount point in FPluginManager::MountPluginFromExternalSource, we need to have the plugin status to Mounted
 			TOptionalGuardValue<EGFPakLoaderPreviousStatus> TemporaryStatus(Status, EGFPakLoaderStatus::Mounted);
-			PluginInterface = LoadPlugin(UPluginPath);
+			PluginInterface = LoadPlugin(UPluginPath, &FailReason);
 		}
 		if (PluginInterface)
 		{
