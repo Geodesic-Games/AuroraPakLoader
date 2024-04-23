@@ -339,15 +339,15 @@ bool UGFPakPlugin::IsValidPluginDirectory(const FString& InPluginDirectory)
 	const FString BaseErrorMessage = GetBaseErrorMessage(TEXT("Validating"));
 	
 	// First, we ensure that the plugin directory exist.
-	if (!FPaths::DirectoryExists(PakPluginDirectory))
+	if (!FPaths::DirectoryExists(InPluginDirectory))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Directory does not exist"), *BaseErrorMessage)
 		return false;
 	}
 
 	// Then we ensure that we have the plugin data we need.
-	PluginName = FPaths::GetBaseFilename(PakPluginDirectory);
-	UPluginPath = PakPluginDirectory / PluginName + TEXT(".uplugin");
+	PluginName = FPaths::GetBaseFilename(InPluginDirectory);
+	UPluginPath = InPluginDirectory / PluginName + TEXT(".uplugin");
 	if (!FPaths::FileExists(UPluginPath))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: UPlugin file does not exist at location '%s'"), *BaseErrorMessage, *UPluginPath)
@@ -355,7 +355,7 @@ bool UGFPakPlugin::IsValidPluginDirectory(const FString& InPluginDirectory)
 	}
 
 	// ensure we have the right base directory
-	const FString PluginPaksFolder = PakPluginDirectory / PaksFolderFromDirectory;
+	const FString PluginPaksFolder = InPluginDirectory / PaksFolderFromDirectory;
 	if (!FPaths::DirectoryExists(PluginPaksFolder))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Directory does not exist"), *BaseErrorMessage)
@@ -423,9 +423,30 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 	UE_LOG(LogGFPakLoader, Log, TEXT("Loaded the Pak Plugin data for '%s'"), *PakPluginDirectory)
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  PluginName : '%s'"), *PluginName)
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPluginPath: '%s'"), *UPluginPath)
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPlugin    : Name: '%s', Version: '%s', Description: '%s'"), *PluginDescriptor.FriendlyName, *PluginDescriptor.VersionName, *PluginDescriptor.Description)
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPlugin    : Name: '%s', Version: '%s', Description: '%s', ExplicitlyLoaded: '%s'"),
+		*PluginDescriptor.FriendlyName, *PluginDescriptor.VersionName, *PluginDescriptor.Description, PluginDescriptor.bExplicitlyLoaded ? TEXT("true") : TEXT("false"))
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  PluginPak  : '%s'"), *PakFilePath)
 
+	// Now we check if there are potential issues
+	if (!PluginDescriptor.bExplicitlyLoaded)
+	{
+		PluginDescriptor.bExplicitlyLoaded = true;
+		FText FailReason;
+		if (PluginDescriptor.Save(UPluginPath, &FailReason))
+		{
+			UE_LOG(LogGFPakLoader, Warning, TEXT("The UPlugin descriptor file '%s' of the PakPlugin '%s' was adjusted to set ExplicitlyLoaded to true."), *UPluginPath, *PluginName)
+		}
+		else
+		{
+			UE_LOG(LogGFPakLoader, Warning, TEXT("Unable to adjust the UPlugin descriptor file '%s' of the PakPlugin '%s' to set ExplicitlyLoaded to true, the Pak Plugin might not mount. Please adjust the .uplugin manually if you encounter any error."), *UPluginPath, *PluginName)
+		}
+	}
+
+	if (TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName))
+	{
+		UE_LOG(LogGFPakLoader, Warning, TEXT("A Plugin with the same name as this Pak Plugin '%s' is already registered with the Plugin Manager, the Pak Plugin might not mount properly. Please remove the other plugin with the same name if you encounter any error."), *UPluginPath)
+	}
+	
 	BroadcastOnStatusChange(EGFPakLoaderStatus::Unmounted);
 	return true;
 }
@@ -613,7 +634,7 @@ bool UGFPakPlugin::Mount_Internal()
 		const FAssetData* GameFeaturesData = GetGameFeatureData();
 		if (!GameFeaturesData)
 		{
-			UE_LOG(LogGFPakLoader, Warning, TEXT("  %s: The Pak Plugin is a GameFeatures plugin but was not packaged is a UGameFeatureData asset at the root of its Content directory. The GameFeatures specific actions might not work."), *BaseErrorMessage)
+			UE_LOG(LogGFPakLoader, Warning, TEXT("  %s: The Pak Plugin is a GameFeatures plugin but was not packaged with a UGameFeatureData asset at the root of its Content directory. The GameFeatures specific actions might not work."), *BaseErrorMessage)
 			UE_LOG(LogGFPakLoader, Warning, TEXT("  bIsGameFeaturePlugin: '%s'"), bIsGameFeaturesPlugin ? TEXT("TRUE") : TEXT("FALSE"))
 			bIsGameFeaturesPlugin = false;
 		}
