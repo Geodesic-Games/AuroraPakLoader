@@ -4,4 +4,4 @@
 
 #include "Logging/LogMacros.h"
 
-DECLARE_LOG_CATEGORY_EXTERN(LogGFPakLoader, Log, All);
+DECLARE_LOG_CATEGORY_EXTERN(LogGFPakLoader, Verbose, All);

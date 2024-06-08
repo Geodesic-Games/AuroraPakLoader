@@ -26,6 +26,7 @@ public:
 #endif
 	//~End UDeveloperSettings
 
+	//todo: add a directory watcher and an option to auto watch the PakLoadPath
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Settings")
 	void SetPakLoadPath(const FString& Path);
 	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader Settings")
@@ -35,17 +36,28 @@ public:
 	 * If true, the GFPakLoaderSubsystem will add all the PakPlugins found in the StartupPakLoadDirectory.
 	 */
 	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
-	bool bAddPakPluginsFromStartupLoadDirectory = true;
+	bool bAddPakPluginsFromStartupLoadDirectory = true; //todo: now that this is an engine subsystem, we should assess when this should run (editor start or PIE start) and if we need a different variable for each
 	/**
 	 * If true, the GFPakLoaderSubsystem will automatically mount all the Pak Plugins added to the subsystem.
 	 */
 	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
 	bool bAutoMountPakPlugins = true;
 	/**
+	 * Any potential Pak folder found that starts with this prefix will be ignored and not registered with the subsystem,
+	 * unless calling UGFPakLoaderSubsystem::GetOrAddPakPlugin directly
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
+	FString IgnorePakWithPrefix = TEXT("_");
+	/**
 	 * If true, the GFPakLoaderSubsystem will automatically activate the GameFeatures of supported PakPlugins, if their settings is to be activated on load.
 	 */
 	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
 	bool bAutoActivateGameFeatures = true;
+	/**
+	 * If true, Paks without .uplugin will not ne loaded, avoiding potential clashes with project content
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader")
+	bool bRequireUPluginPaks = true;
 private:
 	/**
 	 * The Path to the Pak Plugin Directory to load at startup. Relative to the project directory if inside of it, otherwise this is a relative path.

@@ -75,11 +75,12 @@ bool FPluginMountPoint::RegisterMountPoint()
 	const TOptional<FString> Root = TryGetMountPointRootForPath(ContentPath, &FailureReason);
 	if (Root.IsSet())
 	{
-		if (ensure(Root.GetValue() == RootPath))
+		if (Root.GetValue() == RootPath) //todo: add a special log for default content folder, like /Game/ and /Engine/
 		{
 			return true;
 		}
-		UE_LOG(LogGFPakLoader, Warning, TEXT("Tried the register the MountPoint '%s' => '%s' but this content path is already registered to another Root Path '%s'. This previous MountPoint will be overriden"), *RootPath, *ContentPath, *Root.GetValue())
+		UE_LOG(LogGFPakLoader, Warning, TEXT("Tried the register the MountPoint '%s' => '%s' but this content path is already registered to another Root Path '%s'. This previous MountPoint will NOT BE be overriden"), *RootPath, *ContentPath, *Root.GetValue())
+		return true;
 	}
 	if (Root.IsSet() || FailureReason == FPackageName::EErrorCode::PackageNamePathNotMounted)
 	{

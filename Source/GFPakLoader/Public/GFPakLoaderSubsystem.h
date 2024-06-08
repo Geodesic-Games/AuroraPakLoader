@@ -10,6 +10,7 @@
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "GFPakLoaderSubsystem.generated.h"
 
+class UGFPakLoaderSettings;
 class FGFPakLoaderPlatformFile;
 class FPakPlatformFile;
 DECLARE_MULTICAST_DELEGATE_OneParam(FPakPluginEvent, UGFPakPlugin*);
@@ -19,16 +20,21 @@ DECLARE_MULTICAST_DELEGATE(FGFPakLoaderSubsystemEvent);
  * 
  */
 UCLASS()
-class GFPAKLOADER_API UGFPakLoaderSubsystem : public UGameInstanceSubsystem
+class GFPAKLOADER_API UGFPakLoaderSubsystem : public UEngineSubsystem
 {
 	GENERATED_BODY()
 public:
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
+	static UGFPakLoaderSubsystem* Get()
+	{
+		UGFPakLoaderSubsystem* Subsystem = GEngine ? GEngine->GetEngineSubsystem<UGFPakLoaderSubsystem>() : nullptr;
+		return IsValid(Subsystem) ? Subsystem : nullptr;
+	}
+	
 	/** Implement this for initialization of instances of the system */
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	/** Implement this for deinitialization of instances of the system */
 	virtual void Deinitialize() override;
-
-	static UGFPakLoaderSubsystem& Get(const UGameInstance* Instance) { return *Instance->GetSubsystem<UGFPakLoaderSubsystem>(); }
 
 	FGFPakLoaderSubsystemEvent& OnSubsystemReady() { return OnSubsystemReadyDelegate; }
 	FGFPakLoaderSubsystemEvent& OnSubsystemShutdown() { return OnSubsystemShutdownDelegate; }
@@ -44,10 +50,11 @@ public:
 	 * This is a one time operation: if other plugins are added to the folder, the function would have to be called again.
 	 * If a Packaged Plugin is already registered for this path, the function will return it.
 	 * @param InPakPluginFolder The path to the folder in which to look for PakPlugins. If empty, will load the default PakPlugin Folder
-	 * @return Returns an array of the plugins.
+	 * @param NewlyAddedPlugins The list of all the added plugins
+	 * @param AllPluginsInFolder The complete list of all the plugins present in this folder.
 	 */
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem", meta=(AdvancedDisplay=1))
-	TArray<UGFPakPlugin*> AddPakPluginFolder(const FString& InPakPluginFolder);
+	void AddPakPluginFolder(const FString& InPakPluginFolder, TArray<UGFPakPlugin*>& NewlyAddedPlugins, TArray<UGFPakPlugin*>& AllPluginsInFolder);
 	/**
 	 * Add a Packaged Plugin to the subsystem and load it (equivalent of calling UGFPakPluginLoader::LoadPluginData).
 	 * If a Packaged Plugin is already registered for this path, the function will return it.
@@ -58,10 +65,11 @@ public:
 	 *		my-plugin-name.uplugin
 	 *		Content/Paks/<platform>/my-plugin-name-and-additional-things.pak
 	 * Here, the path to the plugin directory would be the path to 'my-plugin-name', for example 'C:/Pak/my-plugin-name/'
+	 * @param bIsNewlyAdded Returns true if the Plugin was newly added, otherwise false if it was added previously
 	 * @return Returns the newly added plugins, or the existing one if the subsystem already had a plugin at this directory
 	 */
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem", meta=(AdvancedDisplay=1))
-	UGFPakPlugin* AddPakPlugin(const FString& InPakPluginPath);
+	UGFPakPlugin* GetOrAddPakPlugin(const FString& InPakPluginPath, bool& bIsNewlyAdded);
 
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
 	const TArray<UGFPakPlugin*>& GetPakPlugins() const
@@ -79,28 +87,62 @@ public:
 			});
 		return Plugins;
 	}
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
+	TArray<UGFPakPlugin*> GetPakPluginsWithStatusAtLeast(EGFPakLoaderStatus MinStatus) const //todo: create an Enumerate function
+	{
+		TArray<UGFPakPlugin*> Plugins;
+		Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
+			[&MinStatus](const UGFPakPlugin* PakPlugin)
+			{
+				return IsValid(PakPlugin) && PakPlugin->IsStatusAtLeast(MinStatus);
+			});
+		return Plugins;
+	}
 
 	TSharedPtr<FPluginMountPoint> AddOrCreateMountPointFromContentPath(const FString& InContentPath);
 
 	bool IsReady() const
 	{
-		return bAssetManagerCreated && bGameInstanceStarted && bEngineLoopInitCompleted && !bIsShuttingDown;
+		return bAssetManagerCreated && bEngineLoopInitCompleted && !bIsShuttingDown;
 	}
 	bool IsShuttingDown() const
 	{
 		return bIsShuttingDown;
 	}
 	FGFPakLoaderPlatformFile* GetGFPakPlatformFile();
-	
+
+	static const UGFPakLoaderSettings* GetPakLoaderSettings()
+	{
+		return GetDefault<UGFPakLoaderSettings>();
+	}
+	static UGFPakLoaderSettings* GetMutablePakLoaderSettings()
+	{
+		return GetMutableDefault<UGFPakLoaderSettings>();
+	}
+
+	/**
+	 * Similar to FPaths::CollapseRelativeDirectories but also allows paths starting with '../'.
+	 * 
+	 * Ex: '../../../../UnrealEngine/../Folder/Folder2/Content/DLCTestProjectContent/DLCTestProjectMap.uasset'
+	 *  => '../../../../                Folder/Folder2/Content/DLCTestProjectContent/DLCTestProjectMap.uasset'  
+	 */
+	static FString CollapseRelativeDirectories(FString Filename); //todo: check if still needed
+
+	/**
+	 * Find the Pak that should contain the given file, and optionally return the AdjustedFilename to use in the PakPlatformFile for easy retrieval.
+	 * @param OriginalFilename 
+	 * @param PakAdjustedFilename 
+	 * @return Returns the PakPlugin in which the file should reside, otherwise null
+	 */
+	UGFPakPlugin* FindMountedPakContainingFile(const TCHAR* OriginalFilename, FString* PakAdjustedFilename = nullptr);
 private:
 	FGFPakLoaderPlatformFile* GFPakPlatformFile = nullptr;
 	
 	bool bAssetManagerCreated = false;
-	bool bGameInstanceStarted = false;
 	bool bEngineLoopInitCompleted = false;
 	bool bStarted = false;
 	bool bIsShuttingDown = false;
-	void OnGameInstanceStarted(UGameInstance* GameInstance);
+	
 	void OnAssetManagerCreated();
 	void OnEngineLoopInitCompleted();
 	void Start();
@@ -133,4 +175,8 @@ private:
 	 * See UGFPakLoaderSubsystem::Initialize for more details
 	 */
 	void RegisterMountPoint(const FString& RootPath, const FString& ContentPath);
+
+	TMap<FString, FString> PathToPluginPath;
+	// only used to not debug print
+	TSet<FString> IgnoredPluginPaths;
 };
