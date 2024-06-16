@@ -64,7 +64,7 @@ void FGFPakLoaderPlatformFile::Tick()
 /**
  * Macro to call the given Function on the right PlatformFile, depending if the file is within a pak or not.
  * ex: CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, FileExists(Filename))
- * todo: Currently we are trying first to call the function in the PakPlatform file and if not successful, call it in the Inner platform file which is not the most effecient. Check if this can be improved
+ * todo: Currently we are trying first to call the function in the PakPlatform file and if not successful, call it in the Inner platform file which is not the most efficient. Check if this can be improved
  * todo: also do not bother if no paks are loaded, go straight to the Lowerlevel?
  * @param Type The type of the return value of the Function
  * @param DefaultValue The DefaultValue to return if no PlatformFile is valid

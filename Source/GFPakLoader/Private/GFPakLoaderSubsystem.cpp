@@ -400,3 +400,44 @@ void UGFPakLoaderSubsystem::RegisterMountPoint(const FString& RootPath, const FS
 	UE_LOG(LogGFPakLoader, Log, TEXT("UGFPakLoaderSubsystem::RegisterMountPoint: About to register MountPoint  '%s' => '%s'"), *RootPath, *ContentPath)
 	FPackageName::RegisterMountPoint(RootPath, ContentPath);
 }
+
+void UGFPakLoaderSubsystem::Debug_LogPaths()
+{
+	UE_LOG(LogGFPakLoader, Warning, TEXT(" === TEST OF FPaths Functions IN '%s' ==="), GIsEditor ? TEXT("EDITOR") : TEXT("GAME") );
+	FString BaseDir = FPlatformProcess::BaseDir();
+	FString RootDir = FPlatformMisc::RootDir();
+	FString ProjectDir = FPlatformMisc::ProjectDir();
+	UE_LOG(LogGFPakLoader, Warning, TEXT("  BaseDir         '%s' "), *BaseDir);
+	UE_LOG(LogGFPakLoader, Warning, TEXT("  RootDir         '%s' "), *RootDir);
+	UE_LOG(LogGFPakLoader, Warning, TEXT("  ProjectDir      '%s' "), *ProjectDir);
+	UE_LOG(LogGFPakLoader, Warning, TEXT("  Full ProjectDir '%s' "), *FPaths::ConvertRelativePathToFull(ProjectDir));
+		
+	TArray<FString> FilenamesToTest;
+	FilenamesToTest.Add(TEXT("/../../../Project/Plugins/GameFeatures/plugin-name/AssetRegistry.bin"));
+	FilenamesToTest.Add(TEXT("../../../Project/Plugins/GameFeatures/plugin-name/AssetRegistry.bin"));
+	FilenamesToTest.Add(TEXT("/../../../../"));
+	FilenamesToTest.Add(TEXT("../../../../"));
+	FilenamesToTest.Add(TEXT("/../../../"));
+	FilenamesToTest.Add(TEXT("../../../"));
+	FilenamesToTest.Add(TEXT("../../"));
+	FilenamesToTest.Add(TEXT("../"));
+	FilenamesToTest.Add(TEXT("./"));
+	FilenamesToTest.Add(TEXT("/"));
+
+	for (FString& FilenameTest : FilenamesToTest)
+	{
+		FString StandardFilenameTest = FilenameTest;
+		FPaths::MakeStandardFilename(StandardFilenameTest);
+			
+		FString Standardized = FPaths::ConvertRelativePathToFull(StandardFilenameTest);
+		// remove duplicate slashes
+		FPaths::RemoveDuplicateSlashes(Standardized);
+
+		FString Collapsed = UGFPakLoaderSubsystem::CollapseRelativeDirectories(FilenameTest);
+			
+		UE_LOG(LogGFPakLoader, Warning, TEXT("  - Test for Path ----------------    '%s'"), *FilenameTest);
+		UE_LOG(LogGFPakLoader, Warning, TEXT("      =>  MakeStandardFilename        '%s'"), *StandardFilenameTest);
+		UE_LOG(LogGFPakLoader, Warning, TEXT("      => ConvertRelativePathToFull    '%s'"), *Standardized);
+		UE_LOG(LogGFPakLoader, Warning, TEXT("      => CollapseRelativeDirectories  '%s'"), *Collapsed);
+	}
+}

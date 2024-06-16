@@ -30,7 +30,7 @@ enum class EGFPakLoaderStatus : uint8
 	GameFeatureActivated	= 6,
 };
 
-struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap> //todo: some of these variables are useful for debugging, but probably not needed. Check what can be removed
+struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 {
 	// The original mount point. ex: "../../../DLCTestProject/"
 	FString OriginalMountPoint;
@@ -269,7 +269,7 @@ public:
 	 * Only Valid if Status is >= `Mounted` and if the plugin is a GameFeatures plugin.
 	 */
 	const FAssetData* GetGameFeatureData() const;
-
+	
 	/**
 	 * Return a map of the possible filenames of files present within this pak. Useful to check if a file exists.
 	 * The Key is the possible name to look for, and the value, which can be shared between multiple entries, is a
@@ -413,4 +413,13 @@ private: // adjusted functions of FPluginUtils::LoadPlugin, FPluginUtils::Unload
 	static TSet<UObject*> ObjectsThatHadFlagsCleared;
 	static FDelegateHandle ReachabilityCallbackHandle;
 #endif
+
+private:
+	/**
+	 * [Workaround] Remove the given PackageNames (ex: "/Game/Folder/BP_Actor") to the Asset Registry CachedEmptyPackages.
+	 * This is needed as AssetRegistry::AppendState does not take care of this and assets will not be removed from this cache once reloaded
+	 */
+	static void RemovePackagesFromAssetRegistryEmptyPackagesCache(const TSet<FName>& PackageNames);
+
+	void UnregisterPluginAssetsFromAssetRegistry();
 };

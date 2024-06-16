@@ -75,7 +75,7 @@ bool FPluginMountPoint::RegisterMountPoint()
 	const TOptional<FString> Root = TryGetMountPointRootForPath(ContentPath, &FailureReason);
 	if (Root.IsSet())
 	{
-		if (Root.GetValue() == RootPath) //todo: add a special log for default content folder, like /Game/ and /Engine/
+		if (Root.GetValue() == RootPath)
 		{
 			return true;
 		}

@@ -179,4 +179,10 @@ private:
 	TMap<FString, FString> PathToPluginPath;
 	// only used to not debug print
 	TSet<FString> IgnoredPluginPaths;
+
+public: // Debug Functions
+	/**
+	 * Print in the log the value of the Platform Paths, as they might differ on different configs and platforms
+	 */
+	static void Debug_LogPaths();
 };
