@@ -2,7 +2,6 @@
 
 #pragma once
 
-#include "GameFeaturePluginOperationResult.h"
 #include "PluginDescriptor.h"
 #include "PluginMountPoint.h"
 #include "AssetRegistry/AssetRegistryState.h"
@@ -32,9 +31,9 @@ enum class EGFPakLoaderStatus : uint8
 
 struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 {
-	// The original mount point. ex: "../../../DLCTestProject/"
+	// The original mount point. ex: "../../../DLCTestProject/" or "../../../"
 	FString OriginalMountPoint;
-	// The adjusted mount point. ex: "/../../../DLCTestProject/"
+	// The adjusted mount point. ex: "/../../../DLCTestProject/" or "/../../../"
 	FString AdjustedMountPoint;
 	// The original filename. ex: "Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
 	FString OriginalFilename;
@@ -49,7 +48,7 @@ struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 	FString ProjectAdjustedFullFilename;
 	// The MountedPackageName retrieved with FPackagePath::TryFromMountedName.GetPackageFName() ex: "/Game/DLCTestProjectContent/BP_DLCTestProject"
 	FName MountedPackageName;
-	// The MountedPackageName retrieved with MountedPackagePath.GetLocalFullPath() ex: "../../../../UnrealEngine/../FanFuel/fanfuel-ue/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
+	// The MountedPackageName retrieved with MountedPackagePath.GetLocalFullPath() ex: "../../../../UnrealEngine/../Folder/Project/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
 	FName LocalBaseFilename;
 
 	static FGFPakFilenameMap FromFilenameAndMountPoints(const FString& MountPoint, const FString& OriginalFilename)
@@ -61,6 +60,7 @@ struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 
 typedef EGFPakLoaderStatus EGFPakLoaderPreviousStatus;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnStatusChanged, class UGFPakPlugin*, PakPlugin, EGFPakLoaderStatus, OldValue, EGFPakLoaderStatus, NewValue);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDestroyed, class UGFPakPlugin*, PakPlugin);
 
 DECLARE_DELEGATE_TwoParams(FOperationCompleted, bool /*bSuccessful*/, const TOptional<UE::GameFeatures::FResult>& /*Result*/);
 
@@ -79,6 +79,7 @@ public:
 	virtual void BeginDestroy() override;
 
 	FOnStatusChanged& OnStatusChanged() { return OnStatusChangedDelegate; }
+	FOnDestroyed& OnPluginDestroyed() { return OnPluginDestroyedDelegate; }
 
 	/**
 	 * Loads the Plugin Data and ensures the directory points to a valid Pak Plugin.
@@ -335,6 +336,8 @@ private:
 
 	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Status Changed", meta = (AllowPrivateAccess))
 	FOnStatusChanged OnStatusChangedDelegate;
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Pak Plugin Destroyed", meta = (AllowPrivateAccess))
+	FOnDestroyed OnPluginDestroyedDelegate;
 
 	TOptional<FAssetRegistryState> PluginAssetRegistry;
 
@@ -380,7 +383,7 @@ private: // adjusted functions of FPluginUtils::LoadPlugin, FPluginUtils::Unload
 	 * Adjusted version of FPluginUtils::UnloadPluginsAssets for GF Pak Plugin, also working at runtime
 	 * Unload assets from the specified plugins but does not unmount them
 	 * @warning Dirty assets that need to be saved will be unloaded anyway
-	 * @param Plugin Plugins to unload assets from
+	 * @param Plugins Plugins to unload assets from
 	 * @param OutFailReason Outputs the reason of the failure if any
 	 * @return Whether plugin assets were successfully unloaded
 	 */
@@ -415,11 +418,24 @@ private: // adjusted functions of FPluginUtils::LoadPlugin, FPluginUtils::Unload
 #endif
 
 private:
+	enum class EAddOrRemove : uint8
+	{
+		Add,
+		Remove,
+	};
 	/**
 	 * [Workaround] Remove the given PackageNames (ex: "/Game/Folder/BP_Actor") to the Asset Registry CachedEmptyPackages.
 	 * This is needed as AssetRegistry::AppendState does not take care of this and assets will not be removed from this cache once reloaded
 	 */
-	static void RemovePackagesFromAssetRegistryEmptyPackagesCache(const TSet<FName>& PackageNames);
+	static void AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove Action, const TSet<FName>& PackageNames);
 
 	void UnregisterPluginAssetsFromAssetRegistry();
+
+#if WITH_EDITOR
+public:
+	const TPair<FString, FString>& GetMountPointAboutToBeMounted() const { return MountPointAboutToBeMounted; }
+private:
+	// Set just before creating a MountPoint for the ContentBrowser to refer to. Ex: {"/DLCTestProject/", "/../../../DLCTestProject/Content/"}
+	TPair<FString, FString> MountPointAboutToBeMounted;
+#endif
 };

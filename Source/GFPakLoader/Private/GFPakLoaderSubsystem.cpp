@@ -56,18 +56,21 @@ void UGFPakLoaderSubsystem::Deinitialize()
 {
 	bIsShuttingDown = true;
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("Deinitializing the UGFPakLoaderSubsystem..."))
-	for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
 	{
-		PakPlugin->Deinitialize();
-		OnPakPluginRemovedDelegate.Broadcast(PakPlugin);
-		PakPlugin->OnStatusChanged().RemoveAll(this);
+		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
+		{
+			PakPlugin->Deinitialize();
+			PakPlugin->ConditionalBeginDestroy();
+		}
+		GameFeaturesPakPlugins.Empty();
 	}
-	GameFeaturesPakPlugins.Empty();
 	
 	// We restore the original delegate. See UGFPakLoaderSubsystem::Initialize for more explanations
 	IPluginManager::Get().SetRegisterMountPointDelegate(IPluginManager::FRegisterMountPointDelegate::CreateStatic(&FPackageName::RegisterMountPoint));
-
-	FWorldDelegates::OnStartGameInstance.RemoveAll(this);
+	
+	FPackageName::OnContentPathMounted().RemoveAll(this);
+	FPackageName::OnContentPathDismounted().RemoveAll(this);
 	
 	bAssetManagerCreated = false;
 	bStarted = false;
@@ -153,32 +156,40 @@ UGFPakPlugin* UGFPakLoaderSubsystem::GetOrAddPakPlugin(const FString& InPakPlugi
 		return nullptr;
 	}
 	
-	UGFPakPlugin** ExistingPakPlugin = Algo::FindByPredicate(GameFeaturesPakPlugins,
-		[&PakPluginPath](const UGFPakPlugin* PakPlugin)
-		{
-			return FPaths::IsSamePath(PakPlugin->GetPakPluginDirectory(), PakPluginPath);
-		});
-
-	bIsNewlyAdded = !ExistingPakPlugin;
-	if (bIsNewlyAdded)
+	UGFPakPlugin* PakPlugin;
 	{
-		UGFPakPlugin* PakPlugin = NewObject<UGFPakPlugin>(this);
-		PakPlugin->SetPakPluginDirectory(PakPluginPath);
-		if (PakPlugin->LoadPluginData())
+		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		UGFPakPlugin** ExistingPakPlugin = Algo::FindByPredicate(GameFeaturesPakPlugins,
+			[&PakPluginPath](const UGFPakPlugin* PakPlugin)
+			{
+				return FPaths::IsSamePath(PakPlugin->GetPakPluginDirectory(), PakPluginPath);
+			});
+
+		bIsNewlyAdded = !ExistingPakPlugin;
+		if (!bIsNewlyAdded)
 		{
-			GameFeaturesPakPlugins.Emplace(PakPlugin);
-
-			PakPlugin->OnStatusChanged().AddDynamic(this, &ThisClass::PakPluginStatusChanged);
-			OnPakPluginAddedDelegate.Broadcast(PakPlugin);
-			OnPakPluginStatusChangedDelegate.Broadcast(PakPlugin, EGFPakLoaderStatus::NotInitialized, PakPlugin->GetStatus());
-			
-			return PakPlugin;
+			return *ExistingPakPlugin;
 		}
-		PakPlugin->ConditionalBeginDestroy();
-		return nullptr;
+	
+		PakPlugin = NewObject<UGFPakPlugin>(this);
+		PakPlugin->SetPakPluginDirectory(PakPluginPath);
+	
+		GameFeaturesPakPlugins.Emplace(PakPlugin); // need to be done here as the UGFPakLoaderSubsystem::RegisterMountPoint might get triggered on loading
 	}
-
-	return *ExistingPakPlugin;
+	
+	PakPlugin->OnStatusChanged().AddDynamic(this, &ThisClass::PakPluginStatusChanged);
+	PakPlugin->OnPluginDestroyed().AddDynamic(this, &ThisClass::PakPluginDestroyed);
+	
+	
+	OnPakPluginAddedDelegate.Broadcast(PakPlugin);
+	
+	if (PakPlugin->LoadPluginData())
+	{
+		return PakPlugin;
+	}
+	
+	PakPlugin->ConditionalBeginDestroy();
+	return nullptr;
 }
 
 TSharedPtr<FPluginMountPoint> UGFPakLoaderSubsystem::AddOrCreateMountPointFromContentPath(const FString& InContentPath)
@@ -279,25 +290,6 @@ FGFPakLoaderPlatformFile* UGFPakLoaderSubsystem::GetGFPakPlatformFile()
 	return GFPakPlatformFile;
 }
 
-FString UGFPakLoaderSubsystem::CollapseRelativeDirectories(FString Filename)
-{
-	const static FString ParentFolder{TEXT("../")};
-	
-	int NbParents = 0;
-	while (Filename.RemoveFromStart(ParentFolder))
-	{
-		++NbParents;
-	}
-	FPaths::CollapseRelativeDirectories(Filename);
-	while (NbParents > 0)
-	{
-		Filename = ParentFolder + Filename;
-		--NbParents;
-	}
-	FPaths::RemoveDuplicateSlashes(Filename);
-	return Filename;
-}
-
 UGFPakPlugin* UGFPakLoaderSubsystem::FindMountedPakContainingFile(const TCHAR* OriginalFilename, FString* PakAdjustedFilename)
 {
 	const FName FilenameF {OriginalFilename};
@@ -346,20 +338,29 @@ void UGFPakLoaderSubsystem::Start()
 		return;
 	}
 	bStarted = true;
+	
+	Debug_LogPaths();
+	
 	UE_LOG(LogGFPakLoader, Verbose, TEXT(" UGFPakLoaderSubsystem Starting..."))
+
+	if (LogGFPakLoader.GetVerbosity() <= ELogVerbosity::Verbose)
+	{
+		FPackageName::OnContentPathMounted().AddUObject(this, &UGFPakLoaderSubsystem::OnContentPathMounted);
+		FPackageName::OnContentPathDismounted().AddUObject(this, &UGFPakLoaderSubsystem::OnContentPathDismounted);
+	}
 	
 	// The GameFeatureSubsystem technically handles the registering and the mounting of the Plugin with the IPluginManager, but by doing so, it ends up
 	// creating a new Mount point for our assets to be mounted.
-	// Our packaged assets do no exist at a specific location on disk, so we need the Mount Point to match their path in the Pak file which is relative:
-	//   => '../../../StatcastUnreal/Plugins/GameFeatures/GFPlugin/Content/' mapped as  '/GFPlugin/'
+	// Our packaged assets do not exist at a specific location on disk, so we need the Mount Point to match their path in the Pak file which is relative:
+	//   => '../../../<project-name>/Plugins/GameFeatures/GFPlugin/Content/' mapped as  '/GFPlugin/'
 	// The problem is that if we let the PluginManager create the MountPoint, it will end up being an absolute path and the assets will not resolve:
-	//   => 'D:/path/StatcastUnreal/Stadiums/GFPlugin/Content/' mounted to '/GFPlugin/'
+	//   => 'D:/path/<project-name>/<DLC>/GFPlugin/Content/' mounted to '/GFPlugin/'
 	// Because the Mount Point would be created everytime the GameFeatures is activated, we need to ensure it is not created in the first place.
 	// As per the IPluginManager and GameFeatureSubsystem code, setting the plugin to not be ExplicitlyLoaded will stop it from automatically creating a Mount Point, but will make other parts not work properly.
 	// Instead, we override the IPluginManager::RegisterMountPointDelegate with our own where we stop the creation of a mount point for one of our Pak Plugin
 	// and we restore the regular delegate when the subsystem is destroyed.
 	IPluginManager::Get().SetRegisterMountPointDelegate(IPluginManager::FRegisterMountPointDelegate::CreateUObject(this, &UGFPakLoaderSubsystem::RegisterMountPoint));
-			
+	
 	OnSubsystemReadyDelegate.Broadcast();
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("...Initialized the UGFPakLoaderSubsystem"))
 	
@@ -368,6 +369,7 @@ void UGFPakLoaderSubsystem::Start()
 		const FString Path = GetDefaultPakPluginFolder();
 		if (FPaths::DirectoryExists(Path))
 		{
+			UE_LOG(LogGFPakLoader, Log, TEXT("Adding Pak Plugin from default folder '%s'"), *Path)
 			TArray<UGFPakPlugin*> NewPlugins;
 			TArray<UGFPakPlugin*> AllPlugins;
 			AddPakPluginFolder(Path, NewPlugins, AllPlugins);
@@ -384,33 +386,53 @@ void UGFPakLoaderSubsystem::PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFP
 	OnPakPluginStatusChangedDelegate.Broadcast(PakPlugin, OldValue, NewValue);
 }
 
+void UGFPakLoaderSubsystem::PakPluginDestroyed(UGFPakPlugin* PakPlugin)
+{
+	OnPakPluginRemovedDelegate.Broadcast(PakPlugin);
+	if (!bIsShuttingDown)
+	{
+		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		GameFeaturesPakPlugins.Remove(PakPlugin);
+	}
+	
+	if (PakPlugin)
+	{
+		PakPlugin->OnStatusChanged().RemoveAll(this);
+	}
+}
+
 void UGFPakLoaderSubsystem::RegisterMountPoint(const FString& RootPath, const FString& ContentPath)
 {
-	for (const UGFPakPlugin* GFPakPlugin : GameFeaturesPakPlugins)
+	// To double-check the Mount Points being added, we could listen to the delegate FPackageName::OnContentPathMounted()
 	{
-		if (ensure(IsValid(GFPakPlugin)) && GFPakPlugin->GetStatus() > EGFPakLoaderStatus::Unmounted)
+		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		for (const UGFPakPlugin* GFPakPlugin : GameFeaturesPakPlugins)
 		{
-			if (RootPath == GFPakPlugin->GetExpectedPluginMountPoint() && FPackageName::MountPointExists(RootPath))
+			if (ensure(IsValid(GFPakPlugin)) && GFPakPlugin->GetStatus() > EGFPakLoaderStatus::Unmounted)
 			{
-				UE_LOG(LogGFPakLoader, Warning, TEXT("UGFPakLoaderSubsystem stopped the IPluginManager from registering the PakPlugin MountPoint  '%s' => '%s'"), *RootPath, *ContentPath)
-				return;
+				if (RootPath == GFPakPlugin->GetExpectedPluginMountPoint() && FPackageName::MountPointExists(RootPath))
+				{
+					UE_LOG(LogGFPakLoader, Warning, TEXT("UGFPakLoaderSubsystem stopped the IPluginManager from registering the PakPlugin MountPoint  '%s' => '%s'"), *RootPath, *ContentPath)
+					return;
+				}
 			}
 		}
 	}
+	
 	UE_LOG(LogGFPakLoader, Log, TEXT("UGFPakLoaderSubsystem::RegisterMountPoint: About to register MountPoint  '%s' => '%s'"), *RootPath, *ContentPath)
 	FPackageName::RegisterMountPoint(RootPath, ContentPath);
 }
 
 void UGFPakLoaderSubsystem::Debug_LogPaths()
 {
-	UE_LOG(LogGFPakLoader, Warning, TEXT(" === TEST OF FPaths Functions IN '%s' ==="), GIsEditor ? TEXT("EDITOR") : TEXT("GAME") );
+	UE_LOG(LogGFPakLoader, Verbose, TEXT(" === UGFPakLoaderSubsystem: FPaths Functions IN '%s' ==="), GIsEditor ? TEXT("EDITOR") : TEXT("GAME") );
 	FString BaseDir = FPlatformProcess::BaseDir();
 	FString RootDir = FPlatformMisc::RootDir();
 	FString ProjectDir = FPlatformMisc::ProjectDir();
-	UE_LOG(LogGFPakLoader, Warning, TEXT("  BaseDir         '%s' "), *BaseDir);
-	UE_LOG(LogGFPakLoader, Warning, TEXT("  RootDir         '%s' "), *RootDir);
-	UE_LOG(LogGFPakLoader, Warning, TEXT("  ProjectDir      '%s' "), *ProjectDir);
-	UE_LOG(LogGFPakLoader, Warning, TEXT("  Full ProjectDir '%s' "), *FPaths::ConvertRelativePathToFull(ProjectDir));
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  BaseDir         '%s' "), *BaseDir);
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  RootDir         '%s' "), *RootDir);
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  ProjectDir      '%s' "), *ProjectDir);
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  Full ProjectDir '%s' "), *FPaths::ConvertRelativePathToFull(ProjectDir));
 		
 	TArray<FString> FilenamesToTest;
 	FilenamesToTest.Add(TEXT("/../../../Project/Plugins/GameFeatures/plugin-name/AssetRegistry.bin"));
@@ -432,12 +454,19 @@ void UGFPakLoaderSubsystem::Debug_LogPaths()
 		FString Standardized = FPaths::ConvertRelativePathToFull(StandardFilenameTest);
 		// remove duplicate slashes
 		FPaths::RemoveDuplicateSlashes(Standardized);
-
-		FString Collapsed = UGFPakLoaderSubsystem::CollapseRelativeDirectories(FilenameTest);
 			
-		UE_LOG(LogGFPakLoader, Warning, TEXT("  - Test for Path ----------------    '%s'"), *FilenameTest);
-		UE_LOG(LogGFPakLoader, Warning, TEXT("      =>  MakeStandardFilename        '%s'"), *StandardFilenameTest);
-		UE_LOG(LogGFPakLoader, Warning, TEXT("      => ConvertRelativePathToFull    '%s'"), *Standardized);
-		UE_LOG(LogGFPakLoader, Warning, TEXT("      => CollapseRelativeDirectories  '%s'"), *Collapsed);
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("  - Test for Path ----------------    '%s'"), *FilenameTest);
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("      => MakeStandardFilename         '%s'"), *StandardFilenameTest);
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("      => ConvertRelativePathToFull    '%s'"), *Standardized);
 	}
+}
+
+void UGFPakLoaderSubsystem::OnContentPathMounted(const FString& AssetPath, const FString& ContentPath)
+{
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("OnContentPathMounted:     '%s'  =>  '%s'"), *AssetPath, *ContentPath);
+}
+
+void UGFPakLoaderSubsystem::OnContentPathDismounted(const FString& AssetPath, const FString& ContentPath)
+{
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("OnContentPathDismounted:  '%s'  =>  '%s'"), *AssetPath, *ContentPath);
 }

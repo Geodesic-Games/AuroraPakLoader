@@ -47,6 +47,7 @@ public class GFPakLoader : ModuleRules
 		{
 			PrivateDependencyModuleNames.Add("UnrealEd");
 			PrivateDependencyModuleNames.Add( "TypedElementRuntime");
+			PrivateDependencyModuleNames.Add( "ContentBrowserData");
 		}
 
 		DynamicallyLoadedModuleNames.AddRange(

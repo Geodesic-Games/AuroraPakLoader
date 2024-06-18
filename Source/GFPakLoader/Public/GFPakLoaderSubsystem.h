@@ -4,13 +4,13 @@
 
 #include "CoreMinimal.h"
 
+#include "GFPakLoaderSettings.h"
 #include "GFPakPlugin.h"
 #include "Algo/Copy.h"
 #include "Engine/GameInstance.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "GFPakLoaderSubsystem.generated.h"
 
-class UGFPakLoaderSettings;
 class FGFPakLoaderPlatformFile;
 class FPakPlatformFile;
 DECLARE_MULTICAST_DELEGATE_OneParam(FPakPluginEvent, UGFPakPlugin*);
@@ -72,30 +72,37 @@ public:
 	UGFPakPlugin* GetOrAddPakPlugin(const FString& InPakPluginPath, bool& bIsNewlyAdded);
 
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
-	const TArray<UGFPakPlugin*>& GetPakPlugins() const
+	TArray<UGFPakPlugin*> GetPakPlugins() const //todo: need an enumerate function
 	{
+		FScopeLock Lock(&GameFeaturesPakPluginsLock);
 		return GameFeaturesPakPlugins;
 	}
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
 	TArray<UGFPakPlugin*> GetPakPluginsWithStatus(EGFPakLoaderStatus Status) const
 	{
 		TArray<UGFPakPlugin*> Plugins;
-		Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
-			[&Status](const UGFPakPlugin* PakPlugin)
-			{
-				return IsValid(PakPlugin) && PakPlugin->GetStatus() == Status;
-			});
+		{
+			FScopeLock Lock(&GameFeaturesPakPluginsLock);
+			Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
+			   [&Status](const UGFPakPlugin* PakPlugin)
+			   {
+				   return IsValid(PakPlugin) && PakPlugin->GetStatus() == Status;
+			   });
+		}
 		return Plugins;
 	}
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
 	TArray<UGFPakPlugin*> GetPakPluginsWithStatusAtLeast(EGFPakLoaderStatus MinStatus) const //todo: create an Enumerate function
 	{
 		TArray<UGFPakPlugin*> Plugins;
-		Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
-			[&MinStatus](const UGFPakPlugin* PakPlugin)
-			{
-				return IsValid(PakPlugin) && PakPlugin->IsStatusAtLeast(MinStatus);
-			});
+		{
+			FScopeLock Lock(&GameFeaturesPakPluginsLock);
+			Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
+			   [&MinStatus](const UGFPakPlugin* PakPlugin)
+			   {
+				   return IsValid(PakPlugin) && PakPlugin->IsStatusAtLeast(MinStatus);
+			   });
+		}
 		return Plugins;
 	}
 
@@ -121,14 +128,6 @@ public:
 	}
 
 	/**
-	 * Similar to FPaths::CollapseRelativeDirectories but also allows paths starting with '../'.
-	 * 
-	 * Ex: '../../../../UnrealEngine/../Folder/Folder2/Content/DLCTestProjectContent/DLCTestProjectMap.uasset'
-	 *  => '../../../../                Folder/Folder2/Content/DLCTestProjectContent/DLCTestProjectMap.uasset'  
-	 */
-	static FString CollapseRelativeDirectories(FString Filename); //todo: check if still needed
-
-	/**
 	 * Find the Pak that should contain the given file, and optionally return the AdjustedFilename to use in the PakPlatformFile for easy retrieval.
 	 * @param OriginalFilename 
 	 * @param PakAdjustedFilename 
@@ -146,7 +145,8 @@ private:
 	void OnAssetManagerCreated();
 	void OnEngineLoopInitCompleted();
 	void Start();
-	
+
+	mutable FCriticalSection GameFeaturesPakPluginsLock;
 	UPROPERTY(Transient)
 	TArray<UGFPakPlugin*> GameFeaturesPakPlugins;
 
@@ -163,12 +163,15 @@ private:
 	 * When the UGFPakLoaderSubsystem deinitializes, the GFPakPlugin deactivates its GameFeature (which is asynchronous) and when done, the FPluginMountPoints unregister their MountPoints.
 	 * If in between the UGFPakLoaderSubsystem is reinitialized, it will Mount all the Pak Plugins which will register their Mount Points, which will end up being unregistered once the old GameFeature
 	 * is fully deactivated and the FPluginMountPoints unregister their MountPoints.
-	 * This scenario can happen in Editor: play a PIE with World Partition, right click on the WorldPartition map and `Play from here`, and do a `Play from here` a second time.
+	 * This scenario can happen in Editor: play a PIE with World Partition, right-click on the WorldPartition map and `Play from here`, and do a `Play from here` a second time.
 	 */
 	inline static TMap<FString, TWeakPtr<FPluginMountPoint>> MountPoints = {};
 
 	UFUNCTION()
 	void PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderStatus OldValue, EGFPakLoaderStatus NewValue);
+
+	UFUNCTION()
+	void PakPluginDestroyed(UGFPakPlugin* PakPlugin);
 
 	/**
 	 * Our override of IPluginManager::RegisterMountPointDelegate allowing us to stop the creation of wrong MountPoints for our PakPlugins.
@@ -185,4 +188,9 @@ public: // Debug Functions
 	 * Print in the log the value of the Platform Paths, as they might differ on different configs and platforms
 	 */
 	static void Debug_LogPaths();
+
+	UFUNCTION()
+	void OnContentPathMounted(const FString& AssetPath, const FString& ContentPath);
+	UFUNCTION()
+	void OnContentPathDismounted(const FString& AssetPath, const FString& ContentPath);
 };

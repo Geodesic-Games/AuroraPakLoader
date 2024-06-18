@@ -36,7 +36,9 @@ public class GFPakLoaderEditor : ModuleRules
 				"Slate",
 				"SlateCore",
 
-				"GFPakLoader"
+				"GFPakLoader",
+				"ContentBrowserData",
+				"Projects",
 			}
 		);
     }

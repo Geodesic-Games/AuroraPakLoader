@@ -45,7 +45,7 @@ bool FPakFileLister::Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory)
 
 bool FPakFilenameFinder::Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory)
 {
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("  - Visit: '%s' => '%s'"), FilenameOrDirectory, *FPaths::GetCleanFilename(FilenameOrDirectory)); //todo: remove
+	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT("  - FPakFilenameFinder::Visit: '%s' => '%s'"), FilenameOrDirectory, *FPaths::GetCleanFilename(FilenameOrDirectory));
 	if (!bIsDirectory && Filename == FPaths::GetCleanFilename(FilenameOrDirectory))
 	{
 		Result = FilenameOrDirectory;
@@ -85,6 +85,14 @@ bool FPakGenerateFilenameMap::Visit(const TCHAR* FilenameOrDirectory, bool bIsDi
 		{
 			PakFilenamesMap.Add(SharedPakFilename->LocalBaseFilename, SharedPakFilename);
 		}
+		if (SharedPakFilename->ProjectAdjustedFullFilename != PakFilename.AdjustedFullFilename)
+		{
+			PakFilenamesMap.Add(FName(SharedPakFilename->ProjectAdjustedFullFilename), SharedPakFilename);
+		}
+		
+		UE_CLOG(PakFilename.AdjustedFullFilename.EndsWith(TEXT(".umap")), LogGFPakLoader, Verbose, TEXT("FGFPakFilenameMap::FromFilenameAndMountPoints UMAP '%s %s' => '%s' (Mounted to '%s' => '%s')"),
+			*OriginalMountPoint, *PakFilename.OriginalFilename, *PakFilename.ProjectAdjustedFullFilename,
+			*PakFilename.MountedPackageName.ToString(), *PakFilename.LocalBaseFilename.ToString());
 	}
 		
 	return false;
