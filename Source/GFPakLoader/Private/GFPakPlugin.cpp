@@ -1659,6 +1659,14 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 			{
 				if (FLinkerLoad* LinkerToReset = FLinkerLoad::FindExistingLinkerForPackage(TopLevelPackage))
 				{
+				    // Calling LinkerToReset->Detach() ends up calling UObject::SetLinker which, for a UTexture2D, recreates a Resource (in UTexture2D::PostLinkerChange()) which we want to avoid
+                    for (int32 ExportIndex = 0; ExportIndex < LinkerToReset->ExportMap.Num(); ++ExportIndex)
+                    {
+                        if (LinkerToReset->ExportMap[ExportIndex].Object)
+                        {
+                            LinkerToReset->ExportMap[ExportIndex].Object->ConditionalBeginDestroy();
+                        }
+                    }
 					LinkerToReset->Detach();
 				}
 			}
