@@ -36,21 +36,9 @@ public:
 		}
 	}
 	/** Returns the PakPlatformFile if the Filename is from a PakFile, otherwise return the LowerLevel */
-	IPlatformFile* GetPlatformFile(const TCHAR* Filename) const
+	IPlatformFile* GetPlatformFile(const TCHAR* Filename) const //todo: review, doesn't seem really needed anymore, but this might allow more efficient way to find the right pak
 	{
-		const IPlatformFile* PlatformFile = GetPlatformFile();
-		if (PlatformFile == PakPlatformFile)
-		{
-			const FString FilenameStr{Filename};
-			for (const FString& Path : PakMountPaths)
-			{
-				if (FilenameStr.StartsWith(Path))
-				{
-					return PakPlatformFile;
-				}
-			}
-		}
-		return LowerLevel;
+		return GetPlatformFile();
 	}
 	/** Returns the PakPlatformFile if valid, otherwise return the LowerLevel */
 	IPlatformFile* GetPlatformFile() const
@@ -63,11 +51,21 @@ public:
 		}
 		return PakPlatformFile ? PakPlatformFile : LowerLevel;
 	}
+
+	/**
+	 * Checks if the given
+	 * @param OriginalFilename 
+	 * @return 
+	 */
+	static FString GetPakAdjustedFilename(const TCHAR* OriginalFilename, bool* bFoundInPak = nullptr);
 	
 	// IPlatformFile
 	virtual bool ShouldBeUsed(IPlatformFile* Inner, const TCHAR* CmdLine) const override { return true; }
 	virtual bool Initialize(IPlatformFile* Inner, const TCHAR* CmdLine) override;
-	virtual IPlatformFile* GetLowerLevel() override { return LowerLevel; }
+	virtual IPlatformFile* GetLowerLevel() override
+	{
+		return IsEngineExitRequested() ? LowerLevel : GetPlatformFile();
+	}
 	virtual void SetLowerLevel(IPlatformFile* NewLowerLevel) override { LowerLevel = NewLowerLevel; }
 	virtual const TCHAR* GetName() const override { return FGFPakLoaderPlatformFile::GetTypeName(); }
 	virtual void Tick() override;

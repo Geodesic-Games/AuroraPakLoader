@@ -3,12 +3,11 @@
 
 #include "GFPakPlugin.h"
 
-#include "ComponentRecreateRenderStateContext.h"
 #include "ComponentReregisterContext.h"
 #include "GameFeatureData.h"
 #include "GameFeaturePluginOperationResult.h"
 #include "GameFeaturesSubsystem.h"
-#include "GameMapsSettings.h"
+#include "GFPakLoaderDirectoryVisitors.h"
 #include "GFPakLoaderLog.h"
 #include "GFPakLoaderPlatformFile.h"
 #include "GFPakLoaderSettings.h"
@@ -23,15 +22,18 @@
 #include "GameFramework/WorldSettings.h"
 #include "HAL/FileManagerGeneric.h"
 #include "Interfaces/IPluginManager.h"
-#include "Kismet/GameplayStatics.h"
 #include "Misc/CoreDelegates.h"
 #include "Misc/PathViews.h"
 #include "UObject/LinkerLoad.h"
 
 #if WITH_EDITOR
+#include "ComponentRecreateRenderStateContext.h"
+#include "ContentBrowserDataSubsystem.h"
+#include "IContentBrowserDataModule.h"
 #include "ObjectTools.h"
 #include "PackageTools.h"
 #include "Selection.h"
+#include "Algo/AnyOf.h"
 #include "Editor/Transactor.h"
 #include "Elements/Interfaces/TypedElementSelectionInterface.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -40,107 +42,62 @@
 #define LOCTEXT_NAMESPACE "FGFPakLoaderModule"
 
 
-class FPakFileLister : public IPlatformFile::FDirectoryVisitor
+FGFPakFilenameMap FGFPakFilenameMap::FromFilenameAndMountPoints(const FString& OriginalMountPoint, const FString& AdjustedMountPoint, const FString& OriginalFilename)
 {
-public:
-	/**
-	 * 
-	 * @param InMountPath The Mount Path returned by the IPakFile which will be prefixed to each path retrieved
-	 * @param bInReturnMountedPaths If true, will return the Mounted Paths (ex: "/Engine/EngineMaterials/FlatNormal") instead of the raw paths (ex: "../../../Engine/Content/EngineMaterials/FlatNormal")
-	 * @param bInIncludeExtension If true, the paths will contain extensions (like .uasset, .umap)
-	 * @param bInIncludeNonAssets If true, all files will be returned, even the .ubulk and .uexp
-	 * @param InTargetExtension If not empty, will only return files matching the given extension (need to include the ".") ex: ".umap"
-	 */
-	FPakFileLister(const FString& InMountPath, bool bInReturnMountedPaths, bool bInIncludeExtension, bool bInIncludeNonAssets, const FString& InTargetExtension = FString())
-		 : MountPath(InMountPath)
-		, bReturnMountedPaths(bInReturnMountedPaths)
-		, bIncludeExtension(bInIncludeExtension)
-		, bIncludeNonAssets(bInIncludeNonAssets)
-		, TargetExtension(InTargetExtension)
-	{}
+	FGFPakFilenameMap PakFilename;
+	PakFilename.OriginalMountPoint = OriginalMountPoint;
+	PakFilename.OriginalFilename = OriginalFilename; //FPaths::GetBaseFilename(OriginalFilename, false);
+	PakFilename.AdjustedMountPoint = AdjustedMountPoint;
 	
-	virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory) override
+	PakFilename.OriginalFullFilename = OriginalMountPoint + PakFilename.OriginalFilename;
+	PakFilename.AdjustedFullFilename = AdjustedMountPoint + PakFilename.OriginalFilename;
+	
+	PakFilename.ProjectAdjustedFullFilename = PakFilename.OriginalFullFilename;
+	// Default Mount Point is "../../../<DLCProjectOrEngine>/Content/<folder>/filename.uasset" or "../../../<DLCProject>/Plugins[/GameFeatures]/<folder>/filename.uasset", and we want to make sure the "<DLCProject>" is matching the current project to find the current Mount Path
+	// So for example, if the DLC was packaged from the project "DLCProject", the path would be "../../../DLCProject/Content/<folder>/filename.uasset", but we want a path adjusted to the current project "../../../CurrentProject/Content/<folder>/filename.uasset"
+	//todo: test with Engine content
+	if (ensure(PakFilename.ProjectAdjustedFullFilename.RemoveFromStart(TEXT("../../../")))) 
 	{
-		if (!bIsDirectory)
+		// here, the filename should be "<DLCProjectOrEngine>/Content/<folder>/filename.uasset"
+		FString DLCProjectName;
+		FString PathAfterProject;
+		if (PakFilename.ProjectAdjustedFullFilename.Split(TEXT("/"), &DLCProjectName, &PathAfterProject) && DLCProjectName != TEXT("Engine")) //todo: test with DLC engine/editor content
 		{
-			const FString Fullname = MountPath + FilenameOrDirectory;
-			if (bReturnMountedPaths)
-			{
-				FString LocalPath; // ex: "../../../Engine/Content/EngineMaterials/FlatNormal"
-				FString PackageName; //ex: "/Engine/EngineMaterials/FlatNormal"
-				FString Extension; //ex: ".uasset" or ".umap"
-				if (FPackageName::TryConvertToMountedPath(Fullname, &LocalPath, &PackageName, nullptr, nullptr, &Extension))
-				{
-					if (bIncludeNonAssets || Extension == TEXT(".uasset") || Extension == TEXT(".umap"))
-					{
-						if (TargetExtension.IsEmpty() || Extension == TargetExtension)
-						{
-							Paths.Add(bIncludeExtension ? PackageName + Extension : PackageName);
-						}
-					}
-				}
-			}
-			else
-			{
-				const FString Extension = FPaths::GetExtension(Fullname, true);
-				if (bIncludeNonAssets || Extension == TEXT(".uasset") || Extension == TEXT(".umap"))
-				{
-					if (TargetExtension.IsEmpty() || Extension == TargetExtension)
-					{
-						Paths.Add(bIncludeExtension ? Fullname : FPaths::GetBaseFilename(Fullname, false));
-					}
-				}
-			}
+			// here, the ProjectName should be "<DLCProject>" and PathAfterProject should be "Content/<folder>/filename.uasset" or "Plugins[/GameFeatures]/Content/<folder>/filename.uasset"
+			FString FullProjectDir = FPlatformMisc::ProjectDir(); // ex: "D:/<folder>/CurrentProject/" if in other drive, otherwise "../../../../../../<folder>/CurrentProject/" for example
+			FString ProjectDir = FPaths::ConvertRelativePathToFull(FullProjectDir); // ex: "D:/<folder>/CurrentProject/" if in other drive, otherwise "C:/<folder>/CurrentProject/" for example
+			FPaths::MakePathRelativeTo(ProjectDir, FPlatformProcess::BaseDir()); // Makes it relative to match. ex: "D:/<folder>/CurrentProject/" if in other drive, otherwise "../../../../../../<folder>/CurrentProject/" for example
+			PakFilename.ProjectAdjustedFullFilename = ProjectDir / PathAfterProject; // Replace the project name of the pak with the current project name
 		}
-		return true;
-	}	
-	FString MountPath;
-	bool bReturnMountedPaths;
-	bool bIncludeExtension;
-	bool bIncludeNonAssets;
-	FString TargetExtension;
-	TArray<FString> Paths;
-};
-
-
-class FPakFilenameFinder : public IPlatformFile::FDirectoryVisitor
-{
-public:
-	FPakFilenameFinder(const FString& InFilename) : Filename(InFilename) {}
-	virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory) override
-	{
-		if (!bIsDirectory && Filename == FPaths::GetCleanFilename(FilenameOrDirectory))
+		else
 		{
-			Result = FilenameOrDirectory;
-			return false;
+			// here, the filename should be an Engine content, so we just add back what we removed "Engine/Content/<folder>/filename.uasset" => "../../../Engine/<folder>/filename.uasset"
+			PakFilename.ProjectAdjustedFullFilename = TEXT("../../../") + PakFilename.ProjectAdjustedFullFilename;
 		}
-		return true;
 	}
-	FString Filename;
-	FString Result;
-};
+	// here, the ProjectAdjustedFullFilename should be "../../Content/<folder>/filename.uasset"
 
-
-class FPakContentFoldersFinder : public IPlatformFile::FDirectoryVisitor
-{
-public:
-	FPakContentFoldersFinder(const FString& InMountPath) : MountPath(InMountPath) {}
-	virtual bool Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory) override
+	PakFilename.MountedPackageName = NAME_None;
+	PakFilename.LocalBaseFilename = NAME_None;
+	TStringBuilder<64> MountPointName;
+	TStringBuilder<256> MountPointPath;
+	TStringBuilder<256> RelativePath;
+	if (FPackageName::TryGetMountPointForPath(PakFilename.ProjectAdjustedFullFilename, MountPointName, MountPointPath,RelativePath))
 	{
-		if (!bIsDirectory)
+		FPackagePath Path;
+		if (FPackagePath::TryFromMountedName(PakFilename.ProjectAdjustedFullFilename, Path))
 		{
-			const FString Fullname = MountPath + FilenameOrDirectory;
-			FString PreContent;
-			if (Fullname.Split(TEXT("/Content/"), &PreContent, nullptr))
-			{
-				ContentFolders.AddUnique(PreContent + TEXT("/Content/"));
-			}
+			PakFilename.MountedPackageName = Path.GetPackageFName();
 		}
-		return true;
+		PakFilename.LocalBaseFilename = FName(FString(MountPointPath) + RelativePath); // not using Path.GetLocalFullPath as the .uexp will create warnings during FPackagePath::FromMountedComponents
 	}
-	FString MountPath;
-	TArray<FString> ContentFolders;
-};
+	
+	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT("  FGFPakFilenameMap::FromFilenameAndMountPoints '%s %s' => '%s' (Mounted to '%s' => '%s')"),
+		*OriginalMountPoint, *OriginalFilename, *PakFilename.ProjectAdjustedFullFilename,
+		*PakFilename.MountedPackageName.ToString(), *PakFilename.LocalBaseFilename.ToString());
+	
+	return PakFilename;
+}
 
 
 
@@ -159,6 +116,8 @@ void UGFPakPlugin::BeginDestroy()
 	AdditionalDeactivationDelegate.Empty();
 	
 	Deinitialize_Internal();
+	OnPluginDestroyedDelegate.Broadcast(this);
+	
 	UObject::BeginDestroy();
 }
 
@@ -166,6 +125,11 @@ bool UGFPakPlugin::LoadPluginData()
 {
 	const bool Result = LoadPluginData_Internal();
 	BroadcastOnStatusChange(Status);
+
+	if (UGFPakLoaderSubsystem::GetPakLoaderSettings()->bAutoMountPakPlugins && Status == EGFPakLoaderStatus::Unmounted)
+	{
+		Mount(); //should we return this instead?
+	}
 	return Result;
 }
 
@@ -173,7 +137,7 @@ bool UGFPakPlugin::Mount()
 {
 	const bool Result = Mount_Internal();
 	BroadcastOnStatusChange(Status);
-	if (bIsGameFeaturesPlugin && Status == EGFPakLoaderStatus::Mounted && GetDefault<UGFPakLoaderSettings>()->bAutoMountPakPlugins)
+	if (bHasUPlugin && bIsGameFeaturesPlugin && Status == EGFPakLoaderStatus::Mounted && UGFPakLoaderSubsystem::GetPakLoaderSettings()->bAutoActivateGameFeatures)
 	{
 		const FAssetData* GFDataAsset = UGFPakPlugin::GetGameFeatureData();
 		UGameFeatureData* GFData = Cast<UGameFeatureData>(GFDataAsset->GetAsset());
@@ -315,11 +279,6 @@ const FAssetData* UGFPakPlugin::GetGameFeatureData() const
 	return GameFeaturesData ? *GameFeaturesData : nullptr;
 }
 
-UGFPakLoaderSubsystem* UGFPakPlugin::GetSubsystem() const
-{
-	return Cast<UGFPakLoaderSubsystem>(GetOuter());
-}
-
 bool UGFPakPlugin::BroadcastOnStatusChange(EGFPakLoaderStatus NewStatus)
 {
 	if (NewStatus != PreviouslyBroadcastedStatus)
@@ -334,28 +293,37 @@ bool UGFPakPlugin::BroadcastOnStatusChange(EGFPakLoaderStatus NewStatus)
 	return false;
 }
 
-bool UGFPakPlugin::IsValidPluginDirectory(const FString& InPluginDirectory)
+bool UGFPakPlugin::IsValidPakPluginDirectory(const FString& InPakPluginDirectory)
 {
 	const FString BaseErrorMessage = GetBaseErrorMessage(TEXT("Validating"));
 	
 	// First, we ensure that the plugin directory exist.
-	if (!FPaths::DirectoryExists(InPluginDirectory))
+	if (!FPaths::DirectoryExists(InPakPluginDirectory))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Directory does not exist"), *BaseErrorMessage)
 		return false;
 	}
 
 	// Then we ensure that we have the plugin data we need.
-	PluginName = FPaths::GetBaseFilename(InPluginDirectory);
-	UPluginPath = InPluginDirectory / PluginName + TEXT(".uplugin");
-	if (!FPaths::FileExists(UPluginPath))
+	PluginName = FPaths::GetBaseFilename(InPakPluginDirectory);
+	
+	UPluginPath = InPakPluginDirectory / PluginName + TEXT(".uplugin");
+	bHasUPlugin = FPaths::FileExists(UPluginPath);
+	if (!bHasUPlugin)
 	{
-		UE_LOG(LogGFPakLoader, Error, TEXT("%s: UPlugin file does not exist at location '%s'"), *BaseErrorMessage, *UPluginPath)
-		return false;
+		if (!UGFPakLoaderSubsystem::GetPakLoaderSettings()->bRequireUPluginPaks)
+		{
+			UPluginPath.Empty();
+		}
+		else
+		{
+			UE_LOG(LogGFPakLoader, Error, TEXT("%s: UPlugin file does not exist at location '%s'"), *BaseErrorMessage, *UPluginPath)
+			return false;
+		}
 	}
 
 	// ensure we have the right base directory
-	const FString PluginPaksFolder = InPluginDirectory / PaksFolderFromDirectory;
+	const FString PluginPaksFolder = InPakPluginDirectory / PaksFolderFromDirectory;
 	if (!FPaths::DirectoryExists(PluginPaksFolder))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Directory does not exist"), *BaseErrorMessage)
@@ -400,7 +368,7 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 	}
 
 	// 1. We make sure we have the Subsystem as outer, which makes it easy to be retrieved
-	const UGFPakLoaderSubsystem* PakLoaderSubsystem = GetSubsystem();
+	const UGFPakLoaderSubsystem* PakLoaderSubsystem = UGFPakLoaderSubsystem::Get();
 	if (!ensure(IsValid(PakLoaderSubsystem)))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("%s: The UGFPakPlugin needs to have its UGFPakLoaderSubsystem as Outer."), *BaseErrorMessage)
@@ -410,25 +378,33 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 	}
 
 	// 2. We ensure the given plugin directory is a valid one and we set our variables
-	if (!IsValidPluginDirectory(PakPluginDirectory))
+	if (!IsValidPakPluginDirectory(PakPluginDirectory))
 	{
 		Deinitialize_Internal();
 		BroadcastOnStatusChange(EGFPakLoaderStatus::InvalidPluginDirectory);
 		return false;
 	}
 
+	{
+		const FName NewName = MakeUniqueObjectName(GetOuter(), GetClass(), FName(PluginName), EUniqueObjectNameOptions::None);
+		Rename(*NewName.ToString());
+	}
+	
 	PluginDescriptor = {};
-	PluginDescriptor.Load(UPluginPath);
+	if (bHasUPlugin)
+	{
+		PluginDescriptor.Load(UPluginPath);
+	}
 
 	UE_LOG(LogGFPakLoader, Log, TEXT("Loaded the Pak Plugin data for '%s'"), *PakPluginDirectory)
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  PluginName : '%s'"), *PluginName)
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPluginPath: '%s'"), *UPluginPath)
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPlugin    : Name: '%s', Version: '%s', Description: '%s', ExplicitlyLoaded: '%s'"),
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPluginPath: '%s'"), bHasUPlugin ? *UPluginPath : TEXT("- No UPlugin -"))
+	UE_CLOG(bHasUPlugin, LogGFPakLoader, Verbose, TEXT("  UPlugin    : Name: '%s', Version: '%s', Description: '%s', ExplicitlyLoaded: '%s'"),
 		*PluginDescriptor.FriendlyName, *PluginDescriptor.VersionName, *PluginDescriptor.Description, PluginDescriptor.bExplicitlyLoaded ? TEXT("true") : TEXT("false"))
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  PluginPak  : '%s'"), *PakFilePath)
 
 	// Now we check if there are potential issues
-	if (!PluginDescriptor.bExplicitlyLoaded)
+	if (bHasUPlugin && !PluginDescriptor.bExplicitlyLoaded)
 	{
 		PluginDescriptor.bExplicitlyLoaded = true;
 		FText FailReason;
@@ -444,7 +420,7 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 
 	if (TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(PluginName))
 	{
-		UE_LOG(LogGFPakLoader, Warning, TEXT("A Plugin with the same name as this Pak Plugin '%s' is already registered with the Plugin Manager, the Pak Plugin might not mount properly. Please remove the other plugin with the same name if you encounter any error."), *UPluginPath)
+		UE_LOG(LogGFPakLoader, Warning, TEXT("A Plugin with the same name as this Pak Plugin '%s' is already registered with the Plugin Manager, the Pak Plugin might not mount properly. Please remove the other plugin with the same name if you encounter any error."), *PluginName)
 	}
 	
 	BroadcastOnStatusChange(EGFPakLoaderStatus::Unmounted);
@@ -454,6 +430,15 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 bool UGFPakPlugin::Mount_Internal()
 {
 	const FString BaseErrorMessage = GetBaseErrorMessage(TEXT("Mounting"));
+
+	UGFPakLoaderSubsystem* PakLoaderSubsystem = UGFPakLoaderSubsystem::Get();
+	if (!ensure(PakLoaderSubsystem) || !PakLoaderSubsystem->IsReady())
+	{
+		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: The PakLoaderSubsystem is not ready, unable to Mount the PakPlugin."), *BaseErrorMessage)
+		Unmount_Internal();
+		return false;
+	}
+	
 	// 1. we ensure that we have loaded the plugin data...
 	if (Status == EGFPakLoaderStatus::NotInitialized)
 	{
@@ -473,7 +458,7 @@ bool UGFPakPlugin::Mount_Internal()
 	UE_LOG(LogGFPakLoader, Log, TEXT("Mounting the Pak Plugin '%s'..."), *PakFilePath)
 	
 	// 2. We ensure we can actually Mount the Pak file by retrieving the PakPlatformFile and checking if the MountPak delegate is bound
-	FGFPakLoaderPlatformFile* PakPlatformFile = GetSubsystem() ? GetSubsystem()->GetGFPakPlatformFile() : nullptr; // We need to ensure the PakPlatformFile is loaded or the following might not work
+	FGFPakLoaderPlatformFile* PakPlatformFile = PakLoaderSubsystem->GetGFPakPlatformFile(); // We need to ensure the PakPlatformFile is loaded or the following might not work
 	if (!ensure(PakPlatformFile) || !ensure(PakPlatformFile->GetPakPlatformFile()) || !FCoreDelegates::MountPak.IsBound())
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: The Mounting Delegate is not bound. Not able to Mount the Pak file."), *BaseErrorMessage)
@@ -494,18 +479,24 @@ bool UGFPakPlugin::Mount_Internal()
 	// Depending on what was packaged in the plugin (like Engine content), the default mount point could be something like "../../../" or "../../../<project-name>/"
 	// but we need the mount point to be "../../../<project-name>/Plugins[/GameFeatures]/<plugin-name>/Content/"
 	// To find the proper MountPoint, we look for the AssetRegistry.bin which is located at the root of the plugin folder
-	FString MountPoint = MountedPakFile->PakGetMountPoint();
+	const FString OriginalMountPoint = MountedPakFile->PakGetMountPoint();
+	FString MountPoint = OriginalMountPoint;
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  Default Mount Point '%s'"), *MountPoint)
+	
+	// Here we have a different behaviour in Game and Editor because FPakPlatformFile::FindFileInPakFiles uses FPaths::MakeStandardFilename
 	// The call to FPaths::MakeStandardFilename does not return the same value on Editor and Game Builds:
-	// Example below with FPaths::MakeStandardFilename("../../../StatcastUnreal/Plugins/GameFeatures/hou-minute-maid-park/AssetRegistry.bin")
+	// Example below with FPaths::MakeStandardFilename("../../../<project-name>/Plugins/GameFeatures/<plugin-name>/AssetRegistry.bin")
 	// This is because FPlatformProcess::BaseDir() doesn't return the same value:
 	// - On Editor Build, it returns the path to the Editor: "C:/Program Files/Epic Games/UE_5.3/Engine/Binaries/Win64",
 	//   which is relative to RootDir "C:/Program Files/Epic Games/UE_5.3/", so MakeStandardFilename keeps the given path RELATIVE
-	// - On Game Build, it returns the path to the Game Exe: "D:/.../ARL/statcastunreal/Binaries/Win64/", which is not relative to RootDir, so FullPath becomes ABSOLUTE
+	// - On Game Build, it returns the path to the Game Exe: "D:/.../<project-name>/Binaries/Win64/", which is not relative to RootDir, so FullPath becomes ABSOLUTE
 	// For the files to be found properly, it needs to start with the MountPoint, so instead we adjust the Mount Point and adjust the filename so it does not get adjusted
-	static_cast<FPakFile*>(MountedPakFile)->SetMountPoint(*(TEXT("/") + MountPoint)); // adding a starting "/" stops FPaths::MakeStandardFilename from changing the path
+	
+	MountPoint = TEXT("/") + MountPoint; // adding a starting "/" stops FPaths::MakeStandardFilename from changing the path
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("    Setting Mount Point to '%s'"), *MountPoint)
+	static_cast<FPakFile*>(MountedPakFile)->SetMountPoint(*MountPoint);
 	MountPoint = MountedPakFile->PakGetMountPoint();
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("  Adjusted Mount Point '%s'"), *MountPoint) // to it doesn't get expanded
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  Adjusted Mount Point '%s'"), *MountPoint)
 	
 	FString AssetRegistryPath;
 	{
@@ -543,93 +534,118 @@ bool UGFPakPlugin::Mount_Internal()
 	}
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  bIsGameFeaturePlugin: '%s'"), bIsGameFeaturesPlugin ? TEXT("TRUE") : TEXT("FALSE"))
 
-	// 4b. Now that we know the path of the plugin folder, we can add the main Plugin mount point
-	UGFPakLoaderSubsystem* PakLoaderSubsystem = GetSubsystem();
-	if (ensure(PakLoaderSubsystem))
+	// 4b. Now that we know the path of the plugin folder, we can add the main Plugin mount point if this is a Plugin DLC
+	
+	TSharedPtr<FPluginMountPoint> PluginContentMountPoint{};
+	if (bHasUPlugin)
 	{ // We add the plugin Mount Point
 		const FString PluginMountPointPath = AssetRegistryFolder / TEXT("Content/");
 		UE_LOG(LogGFPakLoader, Verbose, TEXT("  Adding Mount Point for Pak Plugin:  '%s' => '%s'"), *GetExpectedPluginMountPoint(), *PluginMountPointPath)
-		if (TSharedPtr<FPluginMountPoint> ContentMountPoint = PakLoaderSubsystem->AddOrCreateMountPointFromContentPath(PluginMountPointPath))
+#if WITH_EDITOR
+		MountPointAboutToBeMounted = {GetExpectedPluginMountPoint(), PluginMountPointPath};
+#endif
+		PluginContentMountPoint = PakLoaderSubsystem->AddOrCreateMountPointFromContentPath(PluginMountPointPath);
+		if (PluginContentMountPoint)
 		{
-			PakPluginMountPoints.Add(MoveTemp(ContentMountPoint));
+			PakPluginMountPoints.Add(PluginContentMountPoint);
 		}
 		else
 		{
 			UE_LOG(LogGFPakLoader, Error, TEXT("     => Unable to create the Pak Plugin Mount Point for the content folder: '%s'."), *PluginMountPointPath)
 		}
+#if WITH_EDITOR
+		MountPointAboutToBeMounted = {};
+#endif
 	}
 	// 4c. The assets might have been referencing content outside of their own plugin, which should have been packaged in the Pak file too. We need to create a mount point for them
 	{ // Then we look at other possible MountPoints
 		FPakContentFoldersFinder ContentFoldersFinder {MountPoint};
 		MountedPakFile->PakVisitPrunedFilenames(ContentFoldersFinder);
-		if (ContentFoldersFinder.ContentFolders.IsEmpty() || !ensure(PakPluginMountPoints.Num() > 0 && PakPluginMountPoints[0].IsValid()))
+		if (ContentFoldersFinder.ContentFolders.IsEmpty())
 		{
-			UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to find any Content folder."), *BaseErrorMessage)
-			Unmount_Internal();
-			return false;
+			UE_LOG(LogGFPakLoader, Warning, TEXT("  %s: Unable to find any Content folder."), *BaseErrorMessage)
 		}
-		UE_LOG(LogGFPakLoader, Verbose, TEXT("  Listing all Pak Plugin Content folders:"))
-		for (const FString& ContentFolder : ContentFoldersFinder.ContentFolders)
+		else
 		{
-			UE_LOG(LogGFPakLoader, Verbose, TEXT("   - '%s'"), *ContentFolder)
-			if (ContentFolder != PakPluginMountPoints[0]->GetContentPath() && ensure(PakLoaderSubsystem))
+			UE_LOG(LogGFPakLoader, Verbose, TEXT("  Listing all Pak Plugin Content folders:"))
+			for (const FString& ContentFolder : ContentFoldersFinder.ContentFolders)
 			{
-				if (TSharedPtr<FPluginMountPoint> ContentMountPoint = PakLoaderSubsystem->AddOrCreateMountPointFromContentPath(ContentFolder))
+				UE_LOG(LogGFPakLoader, Verbose, TEXT("   - '%s'"), *ContentFolder)
+				if (!bHasUPlugin || !PluginContentMountPoint || ContentFolder != PluginContentMountPoint->GetContentPath()) // do not try to re-register the main plugin MountPoint
 				{
-					PakPluginMountPoints.Add(MoveTemp(ContentMountPoint));
+#if WITH_EDITOR
+					FString ContentPath;
+					if (const TOptional<FString> MountPointName = FPluginMountPoint::GetMountPointFromContentPath(ContentFolder, &ContentPath))
+					{
+						MountPointAboutToBeMounted = {MountPointName.GetValue(), ContentPath};
+					}
+#endif
+					if (TSharedPtr<FPluginMountPoint> ContentMountPoint = PakLoaderSubsystem->AddOrCreateMountPointFromContentPath(ContentFolder))
+					{
+						PakPluginMountPoints.Add(MoveTemp(ContentMountPoint));
+					}
+					else
+					{
+						UE_LOG(LogGFPakLoader, Error, TEXT("     => Unable to create the Mount Point for the content folder: '%s'."), *ContentFolder)
+					}
 				}
 				else
 				{
-					UE_LOG(LogGFPakLoader, Error, TEXT("     => Unable to create the Mount Point for the content folder: '%s'."), *ContentFolder)
+					UE_CLOG(PluginContentMountPoint, LogGFPakLoader, Verbose, TEXT("     => Pak Plugin Mount Point (already registered):  '%s' => '%s'"), *PluginContentMountPoint->GetRootPath(), *PluginContentMountPoint->GetContentPath())
 				}
 			}
-			else
-			{
-				UE_LOG(LogGFPakLoader, Verbose, TEXT("     => Pak Plugin Mount Point (already registered):  '%s' => '%s'"), *PakPluginMountPoints[0]->GetRootPath(), *PakPluginMountPoints[0]->GetContentPath())
-			}
+#if WITH_EDITOR
+			MountPointAboutToBeMounted = {};
+#endif
 		}
 	}
 	
 	// 4d. As we have the asset registry, we can start loading the assets inside the Asset Registry.
-	if (IFileHandle* FileHandle = PakPlatformFile->OpenRead(*AssetRegistryPath))
 	{
-		FArchiveFileReaderGeneric FileReader {FileHandle, *AssetRegistryPath, FileHandle->Size()};
-		
-		FAssetRegistryVersion::Type Version;
-		FAssetRegistryLoadOptions Options(UE::AssetRegistry::ESerializationTarget::ForDevelopment);
-		PluginAssetRegistry = FAssetRegistryState{};
-		PluginAssetRegistry->Load(FileReader, Options, &Version);
-		UE_LOG(LogGFPakLoader, Verbose, TEXT("  AssetRegistry Loaded from '%s': %d Assets in %d Packages"), *AssetRegistryPath, PluginAssetRegistry->GetNumAssets(), PluginAssetRegistry->GetNumPackages());
-
-		IAssetRegistry& AssetRegistry = UAssetManager::Get().GetAssetRegistry();
-#if WITH_EDITOR
-		UWorld* World = GetWorld();
-		UEditorEngine* EditorEngine = Cast<UEditorEngine>(GEngine);
-		// In PIE, we don't want the Editor Engine to load the DLC Maps which it will do by default when new World Assets are loaded
-		// to avoid this, we remove its delegate before adding the assets to the registry, then we revert the delegate list
-		if (World && World->IsPlayInEditor() && EditorEngine)
+		IFileHandle* FileHandle = nullptr;
 		{
-			TMulticastDelegate<void(UObject*)> OnAssetLoadedDelegates = FCoreUObjectDelegates::OnAssetLoaded; // Make a copy of all delegates
-			FCoreUObjectDelegates::OnAssetLoaded.RemoveAll(EditorEngine); // Remove the EditorEngine one, this would call UEditorEngine::OnAssetLoaded
+			// The plugin needs to be temporary set as Mounted so UGFPakLoaderSubsystem::FindMountedPakContainingFile actually find the assets
+			TGuardValue GuardedStatus(Status, EGFPakLoaderStatus::Mounted); 
 			
-			AssetRegistry.AppendState(*PluginAssetRegistry); // Add the assets, this will trigger FCoreUObjectDelegates::OnAssetLoaded
+			FPakGenerateFilenameMap MountedPakFilenames{OriginalMountPoint, MountPoint};
+			MountedPakFile->PakVisitPrunedFilenames(MountedPakFilenames);
+			PakFilenamesMap = MoveTemp(MountedPakFilenames.PakFilenamesMap);
 			
-			FCoreUObjectDelegates::OnAssetLoaded = OnAssetLoadedDelegates; // Revert
+			FileHandle = PakPlatformFile->OpenRead(*AssetRegistryPath);
 		}
-		else
-#endif
+		if (FileHandle)
 		{
+			FArchiveFileReaderGeneric FileReader {FileHandle, *AssetRegistryPath, FileHandle->Size()};
+		
+			FAssetRegistryVersion::Type Version;
+			FAssetRegistryLoadOptions Options(UE::AssetRegistry::ESerializationTarget::ForDevelopment);
+			PluginAssetRegistry = FAssetRegistryState{};
+			PluginAssetRegistry->Load(FileReader, Options, &Version);
+			UE_LOG(LogGFPakLoader, Verbose, TEXT("  AssetRegistry Loaded from '%s': %d Assets in %d Packages"), *AssetRegistryPath, PluginAssetRegistry->GetNumAssets(), PluginAssetRegistry->GetNumPackages());
+			
+			// We make sure the newly added packages were not marked as empty. This can happen when the assets are deleted via FAssetRegistryModule::AssetDeleted
+			TSet<FName> PackageNames;
+			PluginAssetRegistry->EnumerateAllAssets([&PackageNames](const FAssetData& AssetData)
+			{
+				PackageNames.Add(AssetData.PackageName);
+			});
+			AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove::Remove, PackageNames);
+
+			// Then we add them to the AssetRegistry
+			IAssetRegistry& AssetRegistry = UAssetManager::Get().GetAssetRegistry();
 			AssetRegistry.AppendState(*PluginAssetRegistry);
 		}
+		else
+		{
+			UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to load the Pak Plugin Asset Registry: '%s'."), *BaseErrorMessage, *AssetRegistryPath)
+			Unmount_Internal();
+			return false;
+		}
 	}
-	else
-	{
-		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to load the Pak Plugin Asset Registry: '%s'."), *BaseErrorMessage, *AssetRegistryPath)
-		Unmount_Internal();
-		return false;
-	}
+	
+	
 	// 4e. Ensure we have a valid GameFeaturesPlugin if we believe it should be one
-	if (bIsGameFeaturesPlugin && ensure(PluginAssetRegistry))
+	if (bIsGameFeaturesPlugin && ensure(PluginAssetRegistry)) //todo: test changes with GameFeatures plugin
 	{
 		const FAssetData* GameFeaturesData = GetGameFeatureData();
 		if (!GameFeaturesData)
@@ -641,6 +657,7 @@ bool UGFPakPlugin::Mount_Internal()
 	}
 
 	// 5. Register the plugin with the Plugin Manager
+	if (bHasUPlugin)
 	{
 		FText FailReason;
 		{
@@ -659,6 +676,21 @@ bool UGFPakPlugin::Mount_Internal()
 			return false;
 		}
 	}
+	else
+	{
+		UE_LOG(LogGFPakLoader, Verbose, TEXT("  Skipping the addition of the plugin '%s' to the Plugins list as it does not have a .uplugin"), *PluginName)
+	}
+
+#if WITH_EDITOR
+	// Because the content browser started to refresh some data while we were mounting but the PakPlugin was not yet ready,
+	// We are asking the Content Browser to refresh
+	if (UContentBrowserDataSubsystem* ContentBrowserDataSubsystem = IContentBrowserDataModule::Get().GetSubsystem())
+	{
+		ContentBrowserDataSubsystem->SetVirtualPathTreeNeedsRebuild();
+		ContentBrowserDataSubsystem->RefreshVirtualPathTreeIfNeeded();
+		ContentBrowserDataSubsystem->OnItemDataRefreshed().Broadcast(); // otherwise the changes are not picked up
+	}
+#endif
 	
 	BroadcastOnStatusChange(EGFPakLoaderStatus::Mounted);
 
@@ -677,6 +709,13 @@ void UGFPakPlugin::ActivateGameFeature_Internal(const FOperationCompleted& Compl
 			CompleteDelegate.ExecuteIfBound(false, {});
 			return;
 		}
+	}
+
+	if (!bHasUPlugin)
+	{
+		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Trying to Activate the GameFeatures of a Pak Plugin that does not have a .uplugin, which is required by the GameFeatures Subsystem"), *BaseErrorMessage)
+		CompleteDelegate.ExecuteIfBound(false, {});
+		return;
 	}
 	
 	if (Status == EGFPakLoaderStatus::ActivatingGameFeature)
@@ -733,7 +772,7 @@ void UGFPakPlugin::ActivateGameFeature_Internal(const FOperationCompleted& Compl
 								}
 							}));
 						}
-						else // Is we don't have errors, we broadcast the original delegate first, and any other we might have added
+						else // If we don't have errors, we broadcast the original delegate first, and any other we might have added
 						{
 							WeakThis->bNeedGameFeatureUnloading = true;
 							if (ensure(WeakThis->Status == EGFPakLoaderStatus::ActivatingGameFeature))
@@ -769,6 +808,13 @@ void UGFPakPlugin::ActivateGameFeature_Internal(const FOperationCompleted& Compl
 void UGFPakPlugin::DeactivateGameFeature_Internal(const FOperationCompleted& CompleteDelegate)
 {
 	const FString BaseErrorMessage = GetBaseErrorMessage(TEXT("Deactivating"));
+
+	if (!bHasUPlugin)
+	{
+		UE_LOG(LogGFPakLoader, Error, TEXT("%s: Trying to Deactivate the GameFeatures of a Pak Plugin that does not have a .uplugin, which is required by the GameFeatures Subsystem"), *BaseErrorMessage)
+		CompleteDelegate.ExecuteIfBound(false, {});
+		return;
+	}
 	
 	if (Status == EGFPakLoaderStatus::DeactivatingGameFeature)
 	{
@@ -777,7 +823,7 @@ void UGFPakPlugin::DeactivateGameFeature_Internal(const FOperationCompleted& Com
 	}
 	else if (Status == EGFPakLoaderStatus::Mounted)
 	{
-		UE_LOG(LogGFPakLoader, Log, TEXT("%s: Trying to Dectivate the GameFeatures of a Pak Plugin that is not Activated."), *BaseErrorMessage)
+		UE_LOG(LogGFPakLoader, Log, TEXT("%s: Trying to Deactivate the GameFeatures of a Pak Plugin that is not Activated."), *BaseErrorMessage)
 		CompleteDelegate.ExecuteIfBound(true, {});
 		return;
 	}
@@ -851,26 +897,29 @@ void UGFPakPlugin::DeactivateGameFeature_Internal(const FOperationCompleted& Com
 
 void UGFPakPlugin::UnloadPakPluginObjects_Internal(const FOperationCompleted& CompleteDelegate)
 {
+	//todo: double check unloading Pak Plugin Objects now that the world will be destroyed first
+	
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("Unloading Pak Plugin Objects for the Pak Plugin '%s'..."), *PakFilePath)
 	const FString BaseErrorMessage = GetBaseErrorMessage(TEXT("Unloading Pak Plugin Objects"));
 	
 	// We need to ensure there is no rooted package otherwise UnloadGameFeaturePlugin end up calling FGameFeaturePluginState::MarkPluginAsGarbage > UObjectBaseUtility::MarkAsGarbage which crashes if rooted
 	// In our case that might happen if the current map is a world from the Pak Plugin being unloaded.
-	UWorld* MapWorld = GetWorld();
-	if (!ensure(MapWorld))
-	{
-		UE_LOG(LogGFPakLoader, Error, TEXT(" %s: the World was null"), *BaseErrorMessage)
-		CompleteDelegate.ExecuteIfBound(false, {});
-		return;
-	}
-	const UPackage* WorldPackage = MapWorld->GetPackage();
-	if (!ensure(WorldPackage))
-	{
-		UE_LOG(LogGFPakLoader, Error, TEXT(" %s: the World Package was null"), *BaseErrorMessage)
-		CompleteDelegate.ExecuteIfBound(false, {});
-		return;
-	}
-	const UGFPakLoaderSubsystem* GFPakLoaderSubsystem = GetSubsystem();
+	
+	// UWorld* MapWorld = GetWorld();
+	// if (!ensure(MapWorld))
+	// {
+	// 	UE_LOG(LogGFPakLoader, Error, TEXT(" %s: the World was null"), *BaseErrorMessage)
+	// 	CompleteDelegate.ExecuteIfBound(false, {});
+	// 	return;
+	// }
+	// const UPackage* WorldPackage = MapWorld->GetPackage();
+	// if (!ensure(WorldPackage))
+	// {
+	// 	UE_LOG(LogGFPakLoader, Error, TEXT(" %s: the World Package was null"), *BaseErrorMessage)
+	// 	CompleteDelegate.ExecuteIfBound(false, {});
+	// 	return;
+	// }
+	const UGFPakLoaderSubsystem* GFPakLoaderSubsystem = UGFPakLoaderSubsystem::Get();
 	if (!ensure(GFPakLoaderSubsystem))
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT(" %s: the GFPakLoaderSubsystem was null"), *BaseErrorMessage)
@@ -880,18 +929,18 @@ void UGFPakPlugin::UnloadPakPluginObjects_Internal(const FOperationCompleted& Co
 	
 	// 1. First we make sure there are no Rendering resources that might reference the objects we are about to destroy
 	FlushRenderingCommands();
-	const FNameBuilder WorldPackageName(WorldPackage->GetFName());
-	const FStringView WorldPackageMountPointName = FPathViews::GetMountPointNameFromPath(WorldPackageName);
-	if (PluginName == WorldPackageMountPointName)
-	{
-		for (int32 LevelIndex = 0; LevelIndex < MapWorld->GetNumLevels(); LevelIndex++)
-		{
-			if (ULevel* Level = MapWorld->GetLevel(LevelIndex))
-			{
-				Level->ReleaseRenderingResources();
-			}
-		}
-	}
+	// const FNameBuilder WorldPackageName(WorldPackage->GetFName());
+	// const FStringView WorldPackageMountPointName = FPathViews::GetMountPointNameFromPath(WorldPackageName);
+	// if (PluginName == WorldPackageMountPointName)
+	// {
+	// 	for (int32 LevelIndex = 0; LevelIndex < MapWorld->GetNumLevels(); LevelIndex++)
+	// 	{
+	// 		if (ULevel* Level = MapWorld->GetLevel(LevelIndex))
+	// 		{
+	// 			Level->ReleaseRenderingResources();
+	// 		}
+	// 	}
+	// }
 	
 	// 2. We start destroying the UObjects, Actors and Components
 	FlushAsyncLoading();
@@ -905,26 +954,26 @@ void UGFPakPlugin::UnloadPakPluginObjects_Internal(const FOperationCompleted& Co
 	// 3. We need to check if we are needing to unload the current map and if yes, if we need to open a new map
 	const bool bIsShuttingDown = GFPakLoaderSubsystem->IsShuttingDown();
 	bool bNeedToOpenNewLevel = false;
-	if (PluginName == WorldPackageMountPointName)
-	{
-		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: The current World is from the GFPakPlugin being Unmounted! Reloading the default Map ..."), *BaseErrorMessage);
-		const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
-		if (bIsShuttingDown)
-		{
-			UE_LOG(LogGFPakLoader, Warning, TEXT("  SHUTTING DOWN WAS REQUESTED, NOT TRYING TO LOAD A NEW WORLD"))
-		}
-		else
-		{
-			UE_LOG(LogGFPakLoader, Log, TEXT("Opening the Map '%s'"), *GameMapsSettings->GetGameDefaultMap())
-			UGameplayStatics::OpenLevel(this, FName(GameMapsSettings->GetGameDefaultMap()), false);
-			bNeedToOpenNewLevel = true;
-		}
-	}
+	// if (PluginName == WorldPackageMountPointName)
+	// {
+	// 	UE_LOG(LogGFPakLoader, Error, TEXT("  %s: The current World is from the GFPakPlugin being Unmounted! Reloading the default Map ..."), *BaseErrorMessage);
+	// 	const UGameMapsSettings* GameMapsSettings = GetDefault<UGameMapsSettings>();
+	// 	if (bIsShuttingDown)
+	// 	{
+	// 		UE_LOG(LogGFPakLoader, Warning, TEXT("  SHUTTING DOWN WAS REQUESTED, NOT TRYING TO LOAD A NEW WORLD"))
+	// 	}
+	// 	else
+	// 	{
+	// 		UE_LOG(LogGFPakLoader, Log, TEXT("Opening the Map '%s'"), *GameMapsSettings->GetGameDefaultMap())
+	// 		UGameplayStatics::OpenLevel(this, FName(GameMapsSettings->GetGameDefaultMap()), false);
+	// 		bNeedToOpenNewLevel = true;
+	// 	}
+	// }
 
 	// 4. Creation of the unloading lambdas
-	FString GFPluginPath = UGameFeaturesSubsystem::GetPluginURL_FileProtocol(UPluginPath);
+	FString GFPluginPath = bHasUPlugin ? UGameFeaturesSubsystem::GetPluginURL_FileProtocol(UPluginPath) : "";
 	auto UnloadGameFeature = [WeakThis = TWeakObjectPtr<UGFPakPlugin>(this), bNeedGameFeatureUnloading = bNeedGameFeatureUnloading, PluginName = PluginName, GFPluginPath = MoveTemp(GFPluginPath),
-		BackupMountPoints = PakPluginMountPoints, CompleteDelegate]() mutable
+		BackupMountPoints = PakPluginMountPoints, bHasUPlugin = bHasUPlugin, CompleteDelegate]() mutable
 	{
 		UE_LOG(LogGFPakLoader, Verbose, TEXT("UnloadGameFeature"))
 		UE_LOG(LogGFPakLoader, Verbose, TEXT("FinishDestroyingObjects"))
@@ -934,7 +983,7 @@ void UGFPakPlugin::UnloadPakPluginObjects_Internal(const FOperationCompleted& Co
 		});
 		
 		UGameFeaturesSubsystem* GFSubsystem = GEngine ? GEngine->GetEngineSubsystem<UGameFeaturesSubsystem>() : nullptr;
-		if (GFSubsystem && bNeedGameFeatureUnloading)
+		if (bHasUPlugin && GFSubsystem && bNeedGameFeatureUnloading)
 		{
 			GFSubsystem->UnloadGameFeaturePlugin(GFPluginPath, FGameFeaturePluginLoadComplete::CreateLambda(
 		[GFPluginPath, PluginName, BackupMountPoints = MoveTemp(BackupMountPoints), CompleteDelegate](const UE::GameFeatures::FResult& Result)
@@ -1004,6 +1053,11 @@ bool UGFPakPlugin::Unmount_Internal()
 		}
 		PluginInterface = nullptr;
 	}
+
+	// We first remove the plugin assets from the App Asset Registry
+	UnregisterPluginAssetsFromAssetRegistry();
+
+	// Then we can delete the objects
 	UnloadPakPluginObjects_Internal(FOperationCompleted::CreateLambda([WeakThis = TWeakObjectPtr<UGFPakPlugin>(this), PakFilePath = PakFilePath]
 		(const bool bSuccessful, const TOptional<UE::GameFeatures::FResult>& Result)
 	{
@@ -1021,7 +1075,7 @@ bool UGFPakPlugin::Unmount_Internal()
 	}));
 	PakPluginMountPoints.Empty();
 	
-	FGFPakLoaderPlatformFile* PakPlatformFile = GetSubsystem() ? GetSubsystem()->GetGFPakPlatformFile() : nullptr; // We need to ensure the PakPlatformFile is loaded or the following might not work
+	FGFPakLoaderPlatformFile* PakPlatformFile = UGFPakLoaderSubsystem::Get() ? UGFPakLoaderSubsystem::Get()->GetGFPakPlatformFile() : nullptr; // We need to ensure the PakPlatformFile is loaded or the following might not work
 	if (!ensure(PakPlatformFile) || !FCoreDelegates::OnUnmountPak.IsBound())
 	{
 		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: The Unmounting Delegate is not bound. Not able to Unmount the Pak file."), *BaseErrorMessage)
@@ -1033,10 +1087,22 @@ bool UGFPakPlugin::Unmount_Internal()
 		UE_LOG(LogGFPakLoader, Error, TEXT("  %s: Unable to unmount"), *BaseErrorMessage);
 	}
 	UE_LOG(LogGFPakLoader, Log, TEXT("  Unmounted the Pak Plugin '%s'"), *PakFilePath)
-
+	
 	MountedPakFile = nullptr;
 	PluginAssetRegistry.Reset();
+	PakFilenamesMap.Reset();
 
+#if WITH_EDITOR
+	// We are asking the Content Browser to refresh
+	MountPointAboutToBeMounted = {};
+	if (UContentBrowserDataSubsystem* ContentBrowserDataSubsystem = IContentBrowserDataModule::Get().GetSubsystem())
+	{
+		ContentBrowserDataSubsystem->SetVirtualPathTreeNeedsRebuild();
+		ContentBrowserDataSubsystem->RefreshVirtualPathTreeIfNeeded();
+		ContentBrowserDataSubsystem->OnItemDataRefreshed().Broadcast(); // otherwise the changes are not picked up
+	}
+#endif
+	
 	BroadcastOnStatusChange(EGFPakLoaderStatus::Unmounted);
 	
 	return true;
@@ -1054,9 +1120,11 @@ void UGFPakPlugin::Deinitialize_Internal()
 	PakFilePath.Empty();
 	UPluginPath.Empty();
 	PluginDescriptor = {};
+	bHasUPlugin = false;
 	bIsGameFeaturesPlugin = false;
 	MountedPakFile = nullptr;
 	PluginAssetRegistry.Reset();
+	PakFilenamesMap.Reset();
 	BroadcastOnStatusChange(EGFPakLoaderStatus::NotInitialized);
 }
 
@@ -1079,7 +1147,7 @@ void UGFPakPlugin::PurgePakPluginContent(const FString& PakPluginName, const TFu
 		const FStringView PackageMountPointName = FPathViews::GetMountPointNameFromPath(PackageName);
 		if (PakPluginName == PackageMountPointName) //todo: is there a better way to figure out if this is from this plugin?
 		{
-			const ERenameFlags PkgRenameFlags = REN_ForceNoResetLoaders | REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional | REN_SkipGeneratedClasses;
+			constexpr ERenameFlags PkgRenameFlags = REN_ForceNoResetLoaders | REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional | REN_SkipGeneratedClasses;
 			check(Package->Rename(*MakeUniqueObjectName(nullptr, UPackage::StaticClass(), *FString::Printf(TEXT("%s_PAKPLUGINUNLOADED"), *Package->GetName())).ToString(), nullptr, PkgRenameFlags));
 			if (PurgeObject(Package, ShouldObjectBePurged, ObjectsToPurge, PublicObjectsToPurge, bMarkAsGarbage))
 			{
@@ -1206,7 +1274,7 @@ TSharedPtr<IPlugin> UGFPakPlugin::LoadPlugin(const FString& PluginFilePath, FTex
 		return nullptr;
 	}
 
-	// Double check the path matches
+	// Double-check the path matches
 	if (!FPaths::IsSamePath(Plugin->GetDescriptorFileName(), PluginFilePath))
 	{
 		if (OutFailReason)
@@ -1269,7 +1337,7 @@ bool UGFPakPlugin::UnloadPlugin(const TSharedRef<IPlugin>& Plugin, FText* OutFai
 		}
 		
 
-		if (bPluginUnmounted)
+		if (bPluginUnmounted && !IsEngineExitRequested())
 		{
 			IPluginManager::Get().RefreshPluginsList();
 		}
@@ -1410,7 +1478,7 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 				// Unload the current world
 				GEditor->CreateNewMapForEditing();
 
-				// Remove stale entries in PackagesToUnload (unloaded world, level build data, streaming levels, external actors, etc)
+				// Remove stale entries in PackagesToUnload (unloaded world, level build data, streaming levels, external actors, etc.)
 				PackagesToUnload.Reset();
 				for (const TWeakObjectPtr<UPackage>& WeakPackage : WeakPackages)
 				{
@@ -1483,9 +1551,12 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 			// Close any open asset editors.
 			for (UObject* Obj : ObjectsInPackage)
 			{
-				if (Obj->IsAsset())
+				if (GEditor && Obj->IsAsset())
 				{
-					GEditor->GetEditorSubsystem<UAssetEditorSubsystem>()->CloseAllEditorsForAsset(Obj);
+					if (UAssetEditorSubsystem* AssetEditor = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+					{
+						AssetEditor->CloseAllEditorsForAsset(Obj);
+					}
 				}
 			}
 			ObjectsInPackage.Reset();
@@ -1581,7 +1652,25 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 		// This might seem odd, but if the package we are unloading is being renamed, then the inner UObjects will
 		// be moved to the newly named package rather than being garbage collected and so we need to make sure that
 		// their bulkdata objects remain valid, otherwise renamed packages will not save correctly and cease to function.
-		ResetLoaders(TArray<UObject*>(PackagesToUnload.Array()));
+		TArray<UObject*> PackagesToUnloadArray(PackagesToUnload.Array());
+		for (UObject* Object : PackagesToUnload)
+		{
+			if (UPackage* TopLevelPackage = Object->GetPackage())
+			{
+				if (FLinkerLoad* LinkerToReset = FLinkerLoad::FindExistingLinkerForPackage(TopLevelPackage))
+				{
+				    // Calling LinkerToReset->Detach() ends up calling UObject::SetLinker which, for a UTexture2D, recreates a Resource (in UTexture2D::PostLinkerChange()) which we want to avoid
+                    for (int32 ExportIndex = 0; ExportIndex < LinkerToReset->ExportMap.Num(); ++ExportIndex)
+                    {
+                        if (LinkerToReset->ExportMap[ExportIndex].Object)
+                        {
+                            LinkerToReset->ExportMap[ExportIndex].Object->ConditionalBeginDestroy();
+                        }
+                    }
+					LinkerToReset->Detach();
+				}
+			}
+		}
 
 		for (UPackage* PackageBeingUnloaded : PackagesToUnload)
 		{
@@ -1667,21 +1756,214 @@ void UGFPakPlugin::RestoreStandaloneOnReachableObjects()
 {
 	check(GIsEditor);
 
-	if (PackagesBeingUnloaded && ObjectsThatHadFlagsCleared.Num() > 0)
-	{
-		for (UPackage* PackageBeingUnloaded : *PackagesBeingUnloaded)
-		{
-			ForEachObjectWithPackage(PackageBeingUnloaded, [](UObject* Object)
-			{
-				if (ObjectsThatHadFlagsCleared.Contains(Object))
-				{
-					Object->SetFlags(RF_Standalone);
-				}
-				return true;
-			}, true, RF_NoFlags, UE::GC::GUnreachableObjectFlag);
-		}
-	}
+	//todo: is there a UE5.3 equivalent?
+	// if (PackagesBeingUnloaded && ObjectsThatHadFlagsCleared.Num() > 0)
+	// {
+	// 	for (UPackage* PackageBeingUnloaded : *PackagesBeingUnloaded)
+	// 	{
+	// 		ForEachObjectWithPackage(PackageBeingUnloaded, [](UObject* Object)
+	// 		{
+	// 			if (ObjectsThatHadFlagsCleared.Contains(Object))
+	// 			{
+	// 				Object->SetFlags(RF_Standalone);
+	// 			}
+	// 			return true;
+	// 		}, true, RF_NoFlags, UE::GC::GUnreachableObjectFlag);
+	// 	}
+	// }
 }
 #endif
+
+void UGFPakPlugin::AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove Action, const TSet<FName>& PackageNames)
+{
+	if (PackageNames.IsEmpty())
+	{
+		return;
+	}
+
+	IAssetRegistry* AssetRegistry = IAssetRegistry::Get();
+	if (!AssetRegistry)
+	{
+		return;
+	}
+	
+	// The AssetRegistry CachedEmptyPackages (UAssetRegistryImpl.GuardedData.CachedEmptyPackages) is only cleared in
+	// UAssetRegistryImpl::AssetCreated and UAssetRegistryImpl::AssetRenamed.
+	// Our problem is that when we append our DLC AssetRegistry to the main AssetRegistry, we do not want to force load the Assets to call the functions above.
+	// We can get access to the cache via the DEPRECATED function IAssetRegistry::GetCachedEmptyPackages, but it is not thread safe.
+	// The following 2 functions allow us to pass a callback while a lock has been created:
+	// UAssetRegistryImpl::ReadLockEnumerateTagToAssetDatas and UAssetRegistryImpl::EnumerateAllPackages
+	// so we use them to clear the cache.
+	// todo: check with Epic if AssetRegistry::AppendState could clear the empty packages, or expose a way to add/remove them
+	
+	// This lambda to remove the given packages from the cache is not threadsafe
+	auto RemovePackagesFromCache = [&PackageNames, &AssetRegistry, Action]()
+	{
+		const TSet<FName>& CachedEmptyPackagesConst = AssetRegistry->GetCachedEmptyPackages(); // using deprecated function! But haven't found an easy alternative
+		TSet<FName>& CachedEmptyPackages = const_cast<TSet<FName>&>(CachedEmptyPackagesConst); // remove const-ness from the cache
+		if (Action == EAddOrRemove::Add)
+		{
+			for (FName PackageName : PackageNames)
+			{
+				CachedEmptyPackages.Add(PackageName);
+			}
+		}
+		else
+		{
+			for (FName PackageName : PackageNames)
+			{
+				CachedEmptyPackages.Remove(PackageName);
+			}
+		}
+		
+	};
+	
+	bool bHasUpdated = false;
+
+	// As both ReadLockEnumerateTagToAssetDatas and EnumerateAllPackages don't have a way to short circuit to for loop (we don't care about the assets, we just want the lock)
+	// we try calling first the function which should have the lesser number of items
+	AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
+	{
+		if (!bHasUpdated)
+		{
+			RemovePackagesFromCache();
+			bHasUpdated = true;
+		}
+	});
+
+	if (bHasUpdated)
+	{
+		return;
+	}
+	
+	AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
+	{
+		if (!bHasUpdated)
+		{
+			RemovePackagesFromCache();
+			bHasUpdated = true;
+		}
+	});
+}
+
+void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
+{
+	IAssetRegistry* AssetRegistry = IAssetRegistry::Get();
+	if (!AssetRegistry)
+	{
+		return;
+	}
+
+	UE_LOG(LogGFPakLoader, Log, TEXT("Removing Assets from the Asset Registry"))
+	FlushAsyncLoading(); // to be sure we don't have assets to be deleted that are pending load
+
+	TSet<FName> PackagePathsToRemove;
+	TSet<FName> PackageNamesToRemove;
+	PluginAssetRegistry->EnumerateAllAssets([AssetRegistry, &PackagePathsToRemove, &PackageNamesToRemove](const FAssetData& AssetData)
+	{
+		UE_CLOG(AssetData.AssetClassPath == UWorld::StaticClass()->GetClassPathName(), LogGFPakLoader, Verbose, TEXT("Removing MAP Asset from Asset Registry: '%s'"), *AssetData.GetObjectPathString())
+		UE_CLOG(AssetData.AssetClassPath != UWorld::StaticClass()->GetClassPathName(), LogGFPakLoader, VeryVerbose, TEXT("   Removing Asset from Asset Registry: '%s'"), *AssetData.GetObjectPathString())
+		PackagePathsToRemove.Add(AssetData.PackagePath);
+		
+		UPackage* DeletedObjectPackage = AssetData.PackageName.IsNone() ? nullptr : FindPackage(nullptr, *AssetData.PackageName.ToString()); // do not force load the package
+		UObject* AssetToDelete = AssetData.FastGetAsset();
+		const bool bIsEmptyPackage = !IsValid(DeletedObjectPackage) || UPackage::IsEmptyPackage(DeletedObjectPackage, AssetToDelete);
+
+		// The below is the Runtime and Editor equivalent of ObjectTools::DeleteSingleObject(AssetToDelete, false) which is editor only
+
+		if (AssetToDelete)
+		{
+#if WITH_EDITOR
+			if (GEditor)
+			{
+				if (GEditor->GetSelectedObjects())
+				{
+					GEditor->GetSelectedObjects()->Deselect(AssetToDelete);
+				}
+				if (AssetToDelete->IsAsset())
+				{
+					if (UAssetEditorSubsystem* AssetEditor = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
+					{
+						AssetEditor->CloseAllEditorsForAsset(AssetToDelete);
+					}
+				}
+			}
+#endif
+
+			if (UWorld* World = Cast<UWorld>(AssetToDelete))
+			{
+				World->CleanupWorld();
+			}
+		}
+		
+		if (bIsEmptyPackage)
+		{
+			PackageNamesToRemove.Add(AssetData.PackageName);
+#if WITH_EDITOR
+			// If there is a package metadata object, clear the standalone flag so the package can be truly emptied upon GC
+			if (UMetaData* MetaData = DeletedObjectPackage ? DeletedObjectPackage->GetMetaData() : nullptr)
+			{
+				MetaData->ClearFlags(RF_Standalone);
+			}
+#endif
+		}
+		
+		if (AssetToDelete)
+		{
+			AssetToDelete->MarkPackageDirty();
+
+			// Equivalent of FAssetRegistryModule::AssetDeleted( AssetToDelete ) which is Editor only
+			{
+				// We might need to find a way to add the package to the EmptyPackageCache as per FAssetRegistryModule::AssetDeleted, but it works without
+
+				// Let subscribers know that the asset was removed from the registry
+				AssetRegistry->OnAssetRemoved().Broadcast(AssetData);
+				AssetRegistry->OnAssetsRemoved().Broadcast({AssetData});
+
+				// Notify listeners that an in-memory asset was just deleted
+				AssetRegistry->OnInMemoryAssetDeleted().Broadcast(AssetToDelete);
+			}
+			// Remove standalone flag so garbage collection can delete the object and public flag so that the object is no longer considered to be an asset
+			AssetToDelete->ClearFlags(RF_Standalone | RF_Public);
+		}
+		else
+		{
+			AssetRegistry->OnAssetRemoved().Broadcast(AssetData);
+			AssetRegistry->OnAssetsRemoved().Broadcast({AssetData});
+		}
+
+#if WITH_EDITOR
+		if (bIsEmptyPackage && DeletedObjectPackage)
+		{
+			AssetRegistry->PackageDeleted(DeletedObjectPackage);
+		}
+#endif
+	});
+
+	AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove::Add, PackageNamesToRemove);
+	
+	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+	FlushRenderingCommands();
+
+	{
+		TSet<FString> FilenamesToRemove;
+		for (const TTuple<FName, TSharedPtr<const FGFPakFilenameMap>>& Entry : PakFilenamesMap)
+		{
+			if (Entry.Value && !Entry.Value->MountedPackageName.IsNone())
+			{
+				FilenamesToRemove.Add(Entry.Value->ProjectAdjustedFullFilename);
+			}
+		}
+		const TArray<FString> Filenames = FilenamesToRemove.Array();
+		AssetRegistry->ScanModifiedAssetFiles(Filenames);
+	}
+	// ScanModifiedAssetFiles might remove assets from the cache data, so we need to remove paths after
+	for (FName& PackagePath : PackagePathsToRemove)
+	{
+		const bool bResult = AssetRegistry->RemovePath(PackagePath.ToString());
+		UE_CLOG(bResult, LogGFPakLoader, Verbose, TEXT(" - Removed the Path '%s'"), *PackagePath.ToString())
+		UE_CLOG(!bResult, LogGFPakLoader, Verbose, TEXT(" - ! Unable to remove the Path '%s' !"), *PackagePath.ToString())
+	}
+}
 
 #undef LOCTEXT_NAMESPACE

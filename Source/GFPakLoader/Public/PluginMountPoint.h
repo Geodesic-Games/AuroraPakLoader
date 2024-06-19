@@ -33,6 +33,16 @@ public:
 	 * @return 
 	 */
 	static TOptional<FPluginMountPoint> CreateFromContentPath(const FString& InContentPath);
+
+	/**
+	 * Return the expected MountPoint to match this content Path.
+	 * The Content Path '.../.../Engine/Content/Folder/' will return '/Engine/'
+	 * @param InContentPath The Content Path on disk for this MountPoint. For example, '.../.../Engine/Content/Folder/'.
+	 * Needs to have '/Content/' in the path, representing the content folder.
+	 * @param OutContentPath The Content path cleared of everything after '/Content/'. For example, '.../.../Engine/Content/Folder/' will return '.../.../Engine/Content/'
+	 * @return 
+	 */
+	static TOptional<FString> GetMountPointFromContentPath(const FString& InContentPath, FString* OutContentPath);
 	
 	/** Returns the logical Root Path of this MountPoint. For example, '/Engine/' */
 	const FString& GetRootPath() const { return RootPath; }

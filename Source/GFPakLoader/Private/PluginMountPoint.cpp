@@ -26,6 +26,21 @@ FPluginMountPoint::~FPluginMountPoint()
 TOptional<FPluginMountPoint> FPluginMountPoint::CreateFromContentPath(const FString& InContentPath)
 {
 	FString ContentPath;
+	const TOptional<FString> MountPointName = GetMountPointFromContentPath(InContentPath, &ContentPath);
+	if (MountPointName.IsSet())
+	{
+		return TOptional<FPluginMountPoint>{InPlace, MountPointName.GetValue(), ContentPath};
+	}
+	else
+	{
+		UE_LOG(LogGFPakLoader, Warning, TEXT("Unable to create a PluginMountPoint for ContentPath '%s' because this path does not contain '/Content/'."), *InContentPath)
+	}
+	return {};
+}
+
+TOptional<FString> FPluginMountPoint::GetMountPointFromContentPath(const FString& InContentPath, FString* OutContentPath)
+{
+	FString ContentPath;
 	if (InContentPath.Split(TEXT("/Content/"), &ContentPath, nullptr, ESearchCase::IgnoreCase, ESearchDir::FromStart))
 	{
 		// At this point, ContentPath is something like '.../.../Engine'. We want to find 'Engine' so we split at the last '/'
@@ -33,14 +48,14 @@ TOptional<FPluginMountPoint> FPluginMountPoint::CreateFromContentPath(const FStr
 		if (!ensure(ContentPath.Split(TEXT("/"), nullptr, &MountPointName, ESearchCase::IgnoreCase, ESearchDir::FromEnd)))
 		{
 			// If we do not find the '/', that would mean that all the path before is the new MountPoint. Haven't seen this case so we issue a warning
-			UE_LOG(LogGFPakLoader, Warning, TEXT("The ContentPath used to create the PluginMountPoint doesn't look regular (no '/' before the the MountPointName), this might not work as expected:  '%s'."), *InContentPath)
+			UE_LOG(LogGFPakLoader, Warning, TEXT("The ContentPath doesn't look regular (no '/' before the the MountPointName), this might not work as expected:  '%s'."), *InContentPath)
 			MountPointName = ContentPath;
 		}
-		return FPluginMountPoint(TEXT("/") + MountPointName + TEXT("/"), ContentPath + TEXT("/Content/"));
-	}
-	else
-	{
-		UE_LOG(LogGFPakLoader, Warning, TEXT("Unable to create a PluginMountPoint for ContentPath '%s' because this path does not contain '/Content/'."), *InContentPath)
+		if (OutContentPath)
+		{
+			*OutContentPath = ContentPath + TEXT("/Content/");
+		}
+		return TEXT("/") + MountPointName + TEXT("/");
 	}
 	return {};
 }
@@ -75,11 +90,12 @@ bool FPluginMountPoint::RegisterMountPoint()
 	const TOptional<FString> Root = TryGetMountPointRootForPath(ContentPath, &FailureReason);
 	if (Root.IsSet())
 	{
-		if (ensure(Root.GetValue() == RootPath))
+		if (Root.GetValue() == RootPath)
 		{
 			return true;
 		}
-		UE_LOG(LogGFPakLoader, Warning, TEXT("Tried the register the MountPoint '%s' => '%s' but this content path is already registered to another Root Path '%s'. This previous MountPoint will be overriden"), *RootPath, *ContentPath, *Root.GetValue())
+		UE_LOG(LogGFPakLoader, Warning, TEXT("Tried the register the MountPoint '%s' => '%s' but this content path is already registered to another Root Path '%s'. This previous MountPoint will NOT BE be overriden"), *RootPath, *ContentPath, *Root.GetValue())
+		return true;
 	}
 	if (Root.IsSet() || FailureReason == FPackageName::EErrorCode::PackageNamePathNotMounted)
 	{

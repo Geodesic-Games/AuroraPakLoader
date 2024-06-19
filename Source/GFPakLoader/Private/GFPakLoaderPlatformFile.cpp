@@ -3,7 +3,34 @@
 
 #include "GFPakLoaderPlatformFile.h"
 
+#include "GFPakLoaderLog.h"
+#include "GFPakLoaderSubsystem.h"
 #include "IPlatformFilePak.h"
+
+FString FGFPakLoaderPlatformFile::GetPakAdjustedFilename(const TCHAR* OriginalFilename, bool* bFoundInPak)
+{
+	if (UGFPakLoaderSubsystem* Subsystem = UGFPakLoaderSubsystem::Get())
+	{
+		FString Filename;
+		if (UGFPakPlugin* Plugin = Subsystem->FindMountedPakContainingFile(OriginalFilename, &Filename))
+		{
+			UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... GetPakAdjustedFilename FOUND ( `%s` ) => `%s`"), OriginalFilename, *Filename)
+			if (bFoundInPak)
+			{
+				*bFoundInPak = true;
+			}
+			return Filename;
+		}
+	}
+	
+	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... GetPakAdjustedFilename NOT FOUND( `%s` )"), OriginalFilename)
+	
+	if (bFoundInPak)
+	{
+		*bFoundInPak = false;
+	}
+	return {OriginalFilename};
+}
 
 bool FGFPakLoaderPlatformFile::Initialize(IPlatformFile* Inner, const TCHAR* CmdLine)
 {
@@ -15,9 +42,8 @@ bool FGFPakLoaderPlatformFile::Initialize(IPlatformFile* Inner, const TCHAR* Cmd
 		{
 			// Create a pak platform file and mount the feature pack file.
 			PakPlatformFile = static_cast<FPakPlatformFile*>(FPlatformFileManager::Get().GetPlatformFile(FPakPlatformFile::GetTypeName()));
-			PakPlatformFile->Initialize(Inner, TEXT("")); // TEXT("-UseIoStore")
+			PakPlatformFile->Initialize(Inner, CmdLine);
 			PakPlatformFile->InitializeNewAsyncIO(); // needed in Game builds to ensure PakPrecacherSingleton is valid
-			// FPlatformFileManager::Get().SetPlatformFile(*PakPlatformFile);
 		}
 	}
 	return true;
@@ -35,83 +61,119 @@ void FGFPakLoaderPlatformFile::Tick()
 	}
 }
 
+/**
+ * Macro to call the given Function on the right PlatformFile, depending if the file is within a pak or not.
+ * ex: CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, FileExists(Filename))
+ * todo: Currently we are trying first to call the function in the PakPlatform file and if not successful, call it in the Inner platform file which is not the most efficient. Check if this can be improved
+ * todo: also do not bother if no paks are loaded, go straight to the Lowerlevel?
+ * @param Type The type of the return value of the Function
+ * @param DefaultValue The DefaultValue to return if no PlatformFile is valid
+ * @param Function The complete function call to pass to PlatformFile->
+ */
+#define CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(Type, DefaultValue, Function) \
+	Type Value = DefaultValue; \
+	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename)) \
+	{ \
+		FString AdjustedFilename = GetPakAdjustedFilename(Filename); \
+		Filename = *AdjustedFilename; \
+		Value = PlatformFile->Function; \
+		if (Value == DefaultValue && LowerLevel != nullptr && PakPlatformFile == PlatformFile) \
+		{ \
+			Value = LowerLevel->Function; \
+		} \
+	} \
+	return Value;
 
 bool FGFPakLoaderPlatformFile::FileExists(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->FileExists(Filename) : false;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, FileExists(Filename))
 }
 int64 FGFPakLoaderPlatformFile::FileSize(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->FileSize(Filename) : -1LL;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(int64, -1LL, FileSize(Filename))
 }
 bool FGFPakLoaderPlatformFile::IsReadOnly(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->IsReadOnly(Filename) : false;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, IsReadOnly(Filename))
 }
 bool FGFPakLoaderPlatformFile::DeleteFile(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->DeleteFile(Filename) : false;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, DeleteFile(Filename))
 }
-bool FGFPakLoaderPlatformFile::MoveFile(const TCHAR* To, const TCHAR* From)
+bool FGFPakLoaderPlatformFile::MoveFile(const TCHAR* To, const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(From);
-	return PlatformFile ? PlatformFile->MoveFile(To, From) : false;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, MoveFile(To, Filename))
 }
 bool FGFPakLoaderPlatformFile::SetReadOnly(const TCHAR* Filename, bool bNewReadOnlyValue)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->SetReadOnly(Filename, bNewReadOnlyValue) : false;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, SetReadOnly(Filename, bNewReadOnlyValue))
 }
 FDateTime FGFPakLoaderPlatformFile::GetTimeStamp(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->GetTimeStamp(Filename) : FDateTime::MinValue();
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FDateTime, FDateTime::MinValue(), GetTimeStamp(Filename))
 }
 void FGFPakLoaderPlatformFile::SetTimeStamp(const TCHAR* Filename, FDateTime DateTime)
 {
 	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename))
 	{
 		PlatformFile->SetTimeStamp(Filename, DateTime);
+		if (LowerLevel != nullptr && PakPlatformFile == PlatformFile)
+		{
+			LowerLevel->SetTimeStamp(Filename, DateTime);
+		}
 	}
 }
 FDateTime FGFPakLoaderPlatformFile::GetAccessTimeStamp(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->GetAccessTimeStamp(Filename) : FDateTime::MinValue();
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FDateTime, FDateTime::MinValue(), GetAccessTimeStamp(Filename))
 }
 FString FGFPakLoaderPlatformFile::GetFilenameOnDisk(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->GetFilenameOnDisk(Filename) : FString{};
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FString, FString{}, GetFilenameOnDisk(Filename))
 }
 IFileHandle* FGFPakLoaderPlatformFile::OpenRead(const TCHAR* Filename, bool bAllowWrite)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->OpenRead(Filename, bAllowWrite) : nullptr;
+	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenRead ( `%s` )"), Filename)
+	// todo: as the macro calls GetPakAdjustedFilename which ends up calling FindMountedPakContainingFile,
+	// we are already have a handle of the right plugin containing the file, could we somehow use it here and in the other functions? 
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenRead(Filename, bAllowWrite))
 }
 IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->OpenAsyncRead(Filename) : nullptr;
+	// We need to be careful in OpenAsyncRead because it works a bit differently than what we might expect.
+	// Calling `PakPlatformFile->OpenAsyncRead` in Editor always ends up calling IPlatformFile::OpenAsyncRead(Filename) without calling the function on the LowerLevel.
+	// This is needed for files within a Pak folder but if the file is outside a Pak, the behaviour might not work.
+	// For example, in Game build, the LowerLevel might be a FSandboxPlatformFile, which needs to tweak the given filepath for the path to be found.
+	// This works as expected in FileExists as we end up calling LowerLevel::FileExists, but if we try to open the same file via OpenAsyncRead,
+	// the PakPlatformFile will never call FSandboxPlatformFile::OpenAsyncRead and will just return the handle of the given filename that will not exist at that path
+	IAsyncReadFileHandle* Value = nullptr;
+	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename))
+	{
+		bool bFoundInPak;
+		FString AdjustedFilename = GetPakAdjustedFilename(Filename, &bFoundInPak);
+		Filename = *AdjustedFilename;
+		
+		if (bFoundInPak && PakPlatformFile == PlatformFile)
+		{
+			UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )  =>  PakPlatformFile"), Filename)
+			return PakPlatformFile->OpenAsyncRead(Filename);
+		}
+		UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )"), Filename)
+		return LowerLevel->OpenAsyncRead(Filename);
+	}
+	return Value;
 }
 IMappedFileHandle* FGFPakLoaderPlatformFile::OpenMapped(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->OpenMapped(Filename) : nullptr;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IMappedFileHandle*, nullptr, OpenMapped(Filename))
 }
 IFileHandle* FGFPakLoaderPlatformFile::OpenReadNoBuffering(const TCHAR* Filename, bool bAllowWrite)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->OpenReadNoBuffering(Filename, bAllowWrite) : nullptr;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenReadNoBuffering(Filename, bAllowWrite))
 }
 IFileHandle* FGFPakLoaderPlatformFile::OpenWrite(const TCHAR* Filename, bool bAppend, bool bAllowRead)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->OpenWrite(Filename, bAppend, bAllowRead) : nullptr;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenWrite(Filename, bAppend, bAllowRead))
 }
 bool FGFPakLoaderPlatformFile::DirectoryExists(const TCHAR* Directory)
 {
@@ -194,13 +256,11 @@ void FGFPakLoaderPlatformFile::BypassSecurity(bool bInBypass)
 }
 FString FGFPakLoaderPlatformFile::ConvertToAbsolutePathForExternalAppForRead(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->ConvertToAbsolutePathForExternalAppForRead(Filename) : FString{};
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FString, FString{}, ConvertToAbsolutePathForExternalAppForRead(Filename))
 }
 FString FGFPakLoaderPlatformFile::ConvertToAbsolutePathForExternalAppForWrite(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->ConvertToAbsolutePathForExternalAppForWrite(Filename) : FString{};
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FString, FString{}, ConvertToAbsolutePathForExternalAppForWrite(Filename))
 }
 bool FGFPakLoaderPlatformFile::CopyDirectoryTree(const TCHAR* DestinationDirectory, const TCHAR* Source, bool bOverwriteAllExisting)
 {
@@ -248,8 +308,7 @@ int64 FGFPakLoaderPlatformFile::GetAllowedBytesToWriteThrottledStorage(const TCH
 }
 FDateTime FGFPakLoaderPlatformFile::GetTimeStampLocal(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->GetTimeStampLocal(Filename) : FDateTime::MinValue();
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FDateTime, FDateTime::MinValue(), GetTimeStampLocal(Filename))
 }
 void FGFPakLoaderPlatformFile::GetTimeStampPair(const TCHAR* PathA, const TCHAR* PathB, FDateTime& OutTimeStampA, FDateTime& OutTimeStampB)
 {
@@ -260,10 +319,10 @@ void FGFPakLoaderPlatformFile::GetTimeStampPair(const TCHAR* PathA, const TCHAR*
 		PlatformFile->GetTimeStampPair(PathA, PathB, OutTimeStampA,OutTimeStampB);
 	}
 }
-bool FGFPakLoaderPlatformFile::HasMarkOfTheWeb(FStringView Filename, FString* OutSourceURL)
+bool FGFPakLoaderPlatformFile::HasMarkOfTheWeb(FStringView FilenameView, FString* OutSourceURL)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename.GetData());
-	return PlatformFile ? PlatformFile->HasMarkOfTheWeb(Filename) : false;
+	const TCHAR* Filename = FilenameView.GetData();
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, HasMarkOfTheWeb(Filename))
 }
 void FGFPakLoaderPlatformFile::InitializeAfterProjectFilePath()
 {
@@ -305,8 +364,7 @@ bool FGFPakLoaderPlatformFile::IsSandboxEnabled() const
 }
 ESymlinkResult FGFPakLoaderPlatformFile::IsSymlink(const TCHAR* Filename)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename);
-	return PlatformFile ? PlatformFile->IsSymlink(Filename) : ESymlinkResult::Unimplemented;
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(ESymlinkResult, ESymlinkResult::Unimplemented, IsSymlink(Filename))
 }
 void FGFPakLoaderPlatformFile::MakeUniquePakFilesForTheseFiles(const TArray<TArray<FString>>& InFiles)
 {
@@ -342,10 +400,10 @@ void FGFPakLoaderPlatformFile::SetCreatePublicFiles(bool bCreatePublicFiles)
 		LowerLevel->SetCreatePublicFiles(bCreatePublicFiles);
 	}
 }
-bool FGFPakLoaderPlatformFile::SetMarkOfTheWeb(FStringView Filename, bool bNewStatus, const FString* InSourceURL)
+bool FGFPakLoaderPlatformFile::SetMarkOfTheWeb(FStringView FilenameView, bool bNewStatus, const FString* InSourceURL)
 {
-	IPlatformFile* PlatformFile = GetPlatformFile(Filename.GetData());
-	return PlatformFile ? PlatformFile->SetMarkOfTheWeb(Filename, bNewStatus, InSourceURL) : false;
+	const TCHAR* Filename = FilenameView.GetData();
+	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(bool, false, SetMarkOfTheWeb(Filename, bNewStatus, InSourceURL))
 }
 void FGFPakLoaderPlatformFile::SetSandboxEnabled(bool bInEnabled)
 {
@@ -359,3 +417,4 @@ void FGFPakLoaderPlatformFile::SetSandboxEnabled(bool bInEnabled)
 	}
 }
 
+#undef CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE
