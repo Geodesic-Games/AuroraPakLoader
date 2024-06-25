@@ -37,6 +37,7 @@ public:
 	virtual void Deinitialize() override;
 
 	FGFPakLoaderSubsystemEvent& OnSubsystemReady() { return OnSubsystemReadyDelegate; }
+	FGFPakLoaderSubsystemEvent& OnSubsystemShuttingDown() { return OnSubsystemShuttingDownDelegate; }
 	FGFPakLoaderSubsystemEvent& OnSubsystemShutdown() { return OnSubsystemShutdownDelegate; }
 	
 	FPakPluginEvent& OnPakPluginAdded() { return OnPakPluginAddedDelegate; }
@@ -151,6 +152,7 @@ private:
 	TArray<UGFPakPlugin*> GameFeaturesPakPlugins;
 
 	FGFPakLoaderSubsystemEvent OnSubsystemReadyDelegate;
+	FGFPakLoaderSubsystemEvent OnSubsystemShuttingDownDelegate;
 	FGFPakLoaderSubsystemEvent OnSubsystemShutdownDelegate;
 	
 	FOnStatusChanged OnPakPluginStatusChangedDelegate;

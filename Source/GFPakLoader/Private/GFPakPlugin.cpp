@@ -103,6 +103,8 @@ FGFPakFilenameMap FGFPakFilenameMap::FromFilenameAndMountPoints(const FString& O
 
 void UGFPakPlugin::BeginDestroy()
 {
+	OnBeginDestroyDelegate.Broadcast(this);
+	
 	// We want to be sure all the delegates have been fired
 	for (FOperationCompleted& Delegate : AdditionalActivationDelegate)
 	{
@@ -116,7 +118,7 @@ void UGFPakPlugin::BeginDestroy()
 	AdditionalDeactivationDelegate.Empty();
 	
 	Deinitialize_Internal();
-	OnPluginDestroyedDelegate.Broadcast(this);
+	OnDestroyedDelegate.Broadcast(this);
 	
 	UObject::BeginDestroy();
 }
@@ -662,7 +664,7 @@ bool UGFPakPlugin::Mount_Internal()
 		FText FailReason;
 		{
 			// For UGFPakLoaderSubsystem::RegisterMountPoint to not register the wrong mount point in FPluginManager::MountPluginFromExternalSource, we need to have the plugin status to Mounted
-			TOptionalGuardValue<EGFPakLoaderPreviousStatus> TemporaryStatus(Status, EGFPakLoaderStatus::Mounted);
+			TOptionalGuardValue<EGFPakLoaderStatus> TemporaryStatus(Status, EGFPakLoaderStatus::Mounted);
 			PluginInterface = LoadPlugin(UPluginPath, &FailReason);
 		}
 		if (PluginInterface)
@@ -850,6 +852,8 @@ void UGFPakPlugin::DeactivateGameFeature_Internal(const FOperationCompleted& Com
 	if (bIsGameFeaturesPlugin && GEngine)
 	{
 		UE_LOG(LogGFPakLoader, Log, TEXT("Deactivating GameFeatures for the Pak Plugin '%s'..."), *PakFilePath)
+		OnDeactivatingGameFeaturesDelegate.Broadcast(this);
+		
 		if(UGameFeaturesSubsystem* GFSubsystem = GEngine->GetEngineSubsystem<UGameFeaturesSubsystem>())
 		{
 			BroadcastOnStatusChange(EGFPakLoaderStatus::DeactivatingGameFeature);
@@ -1040,6 +1044,8 @@ bool UGFPakPlugin::Unmount_Internal()
 	}
 
 	UE_LOG(LogGFPakLoader, Log, TEXT("Unmounting the Pak Plugin '%s'..."), *PakFilePath)
+	OnUnmountingDelegate.Broadcast(this);
+	
 	if (PluginInterface)
 	{
 		FText FailReason;
@@ -1116,6 +1122,8 @@ void UGFPakPlugin::Deinitialize_Internal()
 	}
 
 	UE_CLOG(Status != EGFPakLoaderStatus::NotInitialized && Status != EGFPakLoaderStatus::InvalidPluginDirectory, LogGFPakLoader, Log, TEXT("Deinitialized the Pak Plugin '%s'"), *PakPluginDirectory)
+	OnDeinitializingDelegate.Broadcast(this);
+	
 	PluginName.Empty();
 	PakFilePath.Empty();
 	UPluginPath.Empty();

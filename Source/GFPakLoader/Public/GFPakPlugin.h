@@ -58,9 +58,8 @@ struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 	static FGFPakFilenameMap FromFilenameAndMountPoints(const FString& OriginalMountPoint, const FString& AdjustedMountPoint, const FString& OriginalFilename);
 };
 
-typedef EGFPakLoaderStatus EGFPakLoaderPreviousStatus;
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnStatusChanged, class UGFPakPlugin*, PakPlugin, EGFPakLoaderStatus, OldValue, EGFPakLoaderStatus, NewValue);
-DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnDestroyed, class UGFPakPlugin*, PakPlugin);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_ThreeParams(FOnStatusChanged, class UGFPakPlugin*, PakPlugin, EGFPakLoaderStatus, OldStatus, EGFPakLoaderStatus, NewStatus);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FPluginEvent, class UGFPakPlugin*, PakPlugin);
 
 DECLARE_DELEGATE_TwoParams(FOperationCompleted, bool /*bSuccessful*/, const TOptional<UE::GameFeatures::FResult>& /*Result*/);
 
@@ -77,9 +76,15 @@ class GFPAKLOADER_API UGFPakPlugin : public UObject
 	GENERATED_BODY()
 public:
 	virtual void BeginDestroy() override;
-
+	
+	FPluginEvent& OnDeactivatingGameFeatures() { return OnDeactivatingGameFeaturesDelegate; }
+	FPluginEvent& OnUnmounting() { return OnUnmountingDelegate; }
+	FPluginEvent& OnDeinitializing() { return OnDeinitializingDelegate; }
+	
 	FOnStatusChanged& OnStatusChanged() { return OnStatusChangedDelegate; }
-	FOnDestroyed& OnPluginDestroyed() { return OnPluginDestroyedDelegate; }
+	
+	FPluginEvent& OnBeginDestroy() { return OnBeginDestroyDelegate; }
+	FPluginEvent& OnDestroyed() { return OnDestroyedDelegate; }
 
 	/**
 	 * Loads the Plugin Data and ensures the directory points to a valid Pak Plugin.
@@ -334,10 +339,19 @@ private:
 	TArray<TSharedPtr<FPluginMountPoint>> PakPluginMountPoints;
 	IPakFile* MountedPakFile = nullptr;
 
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating Game Features", meta = (AllowPrivateAccess))
+	FPluginEvent OnDeactivatingGameFeaturesDelegate;
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Unmounting", meta = (AllowPrivateAccess))
+	FPluginEvent OnUnmountingDelegate;
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating", meta = (AllowPrivateAccess))
+	FPluginEvent OnDeinitializingDelegate;
+	
 	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Status Changed", meta = (AllowPrivateAccess))
 	FOnStatusChanged OnStatusChangedDelegate;
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Pak Plugin Destroyed", meta = (AllowPrivateAccess))
-	FOnDestroyed OnPluginDestroyedDelegate;
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Begin Destroy", meta = (AllowPrivateAccess))
+	FPluginEvent OnBeginDestroyDelegate;
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Destroyed", meta = (AllowPrivateAccess))
+	FPluginEvent OnDestroyedDelegate;
 
 	TOptional<FAssetRegistryState> PluginAssetRegistry;
 

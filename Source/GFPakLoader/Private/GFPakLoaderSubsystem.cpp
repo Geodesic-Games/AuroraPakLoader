@@ -56,6 +56,8 @@ void UGFPakLoaderSubsystem::Deinitialize()
 {
 	bIsShuttingDown = true;
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("Deinitializing the UGFPakLoaderSubsystem..."))
+	OnSubsystemShuttingDownDelegate.Broadcast();
+	
 	{
 		FScopeLock Lock(&GameFeaturesPakPluginsLock);
 		for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
@@ -178,7 +180,7 @@ UGFPakPlugin* UGFPakLoaderSubsystem::GetOrAddPakPlugin(const FString& InPakPlugi
 	}
 	
 	PakPlugin->OnStatusChanged().AddDynamic(this, &ThisClass::PakPluginStatusChanged);
-	PakPlugin->OnPluginDestroyed().AddDynamic(this, &ThisClass::PakPluginDestroyed);
+	PakPlugin->OnDestroyed().AddDynamic(this, &ThisClass::PakPluginDestroyed);
 	
 	
 	OnPakPluginAddedDelegate.Broadcast(PakPlugin);
@@ -343,11 +345,13 @@ void UGFPakLoaderSubsystem::Start()
 	
 	UE_LOG(LogGFPakLoader, Verbose, TEXT(" UGFPakLoaderSubsystem Starting..."))
 
+#if WITH_EDITOR
 	if (LogGFPakLoader.GetVerbosity() <= ELogVerbosity::Verbose)
 	{
 		FPackageName::OnContentPathMounted().AddUObject(this, &UGFPakLoaderSubsystem::OnContentPathMounted);
 		FPackageName::OnContentPathDismounted().AddUObject(this, &UGFPakLoaderSubsystem::OnContentPathDismounted);
 	}
+#endif
 	
 	// The GameFeatureSubsystem technically handles the registering and the mounting of the Plugin with the IPluginManager, but by doing so, it ends up
 	// creating a new Mount point for our assets to be mounted.
@@ -360,9 +364,9 @@ void UGFPakLoaderSubsystem::Start()
 	// Instead, we override the IPluginManager::RegisterMountPointDelegate with our own where we stop the creation of a mount point for one of our Pak Plugin
 	// and we restore the regular delegate when the subsystem is destroyed.
 	IPluginManager::Get().SetRegisterMountPointDelegate(IPluginManager::FRegisterMountPointDelegate::CreateUObject(this, &UGFPakLoaderSubsystem::RegisterMountPoint));
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("...Initialized the UGFPakLoaderSubsystem"))
 	
 	OnSubsystemReadyDelegate.Broadcast();
-	UE_LOG(LogGFPakLoader, Verbose, TEXT("...Initialized the UGFPakLoaderSubsystem"))
 	
 	if (GetPakLoaderSettings()->bAddPakPluginsFromStartupLoadDirectory)
 	{
@@ -381,7 +385,7 @@ void UGFPakLoaderSubsystem::Start()
 	}
 }
 
-void UGFPakLoaderSubsystem::PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderPreviousStatus OldValue, EGFPakLoaderStatus NewValue)
+void UGFPakLoaderSubsystem::PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderStatus OldValue, EGFPakLoaderStatus NewValue)
 {
 	OnPakPluginStatusChangedDelegate.Broadcast(PakPlugin, OldValue, NewValue);
 }
