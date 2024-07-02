@@ -46,40 +46,51 @@ void FGFPakLoaderEditorModule::OnContentBrowserGenerateVirtualPathPrefix(const F
 			OutPath.Append("/");
 			OutPath.Append(Plugin->GetPluginName());
 		};
-		
-		const TArray<UGFPakPlugin*> Plugins = Subsystem->GetPakPluginsWithStatusAtLeast(EGFPakLoaderStatus::Unmounted);
-		for (const UGFPakPlugin* Plugin : Plugins)
+
+		UGFPakPlugin* Plugin = nullptr;
+		FString DebugReason;
+		Subsystem->EnumeratePakPluginsWithStatus<UGFPakLoaderSubsystem::EComparison::GreaterOrEqual>(EGFPakLoaderStatus::Unmounted, [&MountPointStringView, &Plugin, &DebugReason](UGFPakPlugin* PakPlugin)
 		{
 			// The main issue here is that some callbacks are triggered before the MountPoints are added to the plugin,
 			// so the plugin currently has to force the content browser to refresh
-			if (Plugin->GetStatus() == EGFPakLoaderStatus::Unmounted)
+			if (PakPlugin->GetStatus() == EGFPakLoaderStatus::Unmounted) 
 			{
-				const FStringView PluginMountPointView = FPathViews::GetMountPointNameFromPath(Plugin->GetMountPointAboutToBeMounted().Key);
+				//todo: Minor bug, when a Plugin with the same name as a Pak plugin exists, this will end up showing the Plugin content in the PakPlugins folder, even though the PakPlugin will not be able to Mount
+				// This should be fixed with a "Mounting" state
+				const FStringView PluginMountPointView = FPathViews::GetMountPointNameFromPath(PakPlugin->GetMountPointAboutToBeMounted().Key);
 				if (PluginMountPointView == MountPointStringView)
 				{
-					AppendPrefix(Plugin);
-					UE_LOG(LogGFPakLoaderEditor, VeryVerbose, TEXT(" OnContentBrowserGenerateVirtualPathPrefix:  Path  '%s' => Virtual Path  '%s'  as it is matching the MountPointAboutToBeMounted"), *FString{InPath}, *OutPath);
-					return;
+					Plugin = PakPlugin;
+					DebugReason = "MountPointAboutToBeMounted";
+					return UGFPakLoaderSubsystem::EForEachResult::Break;
 				}
 			}
 			
-			if (Plugin->GetPluginName() == MountPointStringView)
+			if (PakPlugin->GetPluginName() == MountPointStringView)
 			{
-				AppendPrefix(Plugin);
-				UE_LOG(LogGFPakLoaderEditor, VeryVerbose, TEXT(" OnContentBrowserGenerateVirtualPathPrefix:  Path  '%s' => Virtual Path  '%s'  as it is matching the PLUGIN NAME"), *FString{InPath}, *OutPath);
-				return;
+				Plugin = PakPlugin;
+				DebugReason = "PLUGIN NAME";
+				return UGFPakLoaderSubsystem::EForEachResult::Break;
 			}
 			
-			for (const TSharedPtr<FPluginMountPoint>& PluginMountPoint : Plugin->GetPakPluginMountPoints())
+			for (const TSharedPtr<FPluginMountPoint>& PluginMountPoint : PakPlugin->GetPakPluginMountPoints())
 			{
 				const FStringView PluginMountPointView = FPathViews::GetMountPointNameFromPath(PluginMountPoint->GetRootPath());
 				if (PluginMountPoint->IsRegistered() && PluginMountPointView == MountPointStringView)
 				{
-					AppendPrefix(Plugin);
-					UE_LOG(LogGFPakLoaderEditor, VeryVerbose, TEXT(" OnContentBrowserGenerateVirtualPathPrefix:  Path  '%s' => Virtual Path  '%s'  as it is matching the REGISTERED MOUNT POINT"), *FString{InPath}, *OutPath);
-					return;
+					Plugin = PakPlugin;
+					DebugReason = "REGISTERED MOUNT POINT";
+					return UGFPakLoaderSubsystem::EForEachResult::Break;
 				}
 			}
+			return UGFPakLoaderSubsystem::EForEachResult::Continue;
+		});
+
+		if (Plugin)
+		{
+			AppendPrefix(Plugin);
+            UE_LOG(LogGFPakLoaderEditor, VeryVerbose, TEXT(" OnContentBrowserGenerateVirtualPathPrefix:  Path  '%s' => Virtual Path  '%s'  as it is matching the %s"), *FString{InPath}, *OutPath, *DebugReason);
+			return;
 		}
 	}
 	

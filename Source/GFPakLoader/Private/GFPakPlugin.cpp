@@ -400,6 +400,7 @@ bool UGFPakPlugin::LoadPluginData_Internal()
 
 	UE_LOG(LogGFPakLoader, Log, TEXT("Loaded the Pak Plugin data for '%s'"), *PakPluginDirectory)
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  PluginName : '%s'"), *PluginName)
+	UE_LOG(LogGFPakLoader, Verbose, TEXT("  DirectoryName : '%s'"), *GetPakPluginDirectoryName())
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("  UPluginPath: '%s'"), bHasUPlugin ? *UPluginPath : TEXT("- No UPlugin -"))
 	UE_CLOG(bHasUPlugin, LogGFPakLoader, Verbose, TEXT("  UPlugin    : Name: '%s', Version: '%s', Description: '%s', ExplicitlyLoaded: '%s'"),
 		*PluginDescriptor.FriendlyName, *PluginDescriptor.VersionName, *PluginDescriptor.Description, PluginDescriptor.bExplicitlyLoaded ? TEXT("true") : TEXT("false"))
@@ -1043,8 +1044,18 @@ bool UGFPakPlugin::Unmount_Internal()
 		return Status == EGFPakLoaderStatus::Unmounted;
 	}
 
+	// Do a full Flush before we call the delegates
+	FlushAsyncLoading();
+	(*GFlushStreamingFunc)();
+	FlushRenderingCommands();
+	CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS, true );
+	FlushRenderingCommands();
+	
 	UE_LOG(LogGFPakLoader, Log, TEXT("Unmounting the Pak Plugin '%s'..."), *PakFilePath)
 	OnUnmountingDelegate.Broadcast(this);
+	
+	// We first remove the plugin assets from the App Asset Registry
+	UnregisterPluginAssetsFromAssetRegistry();
 	
 	if (PluginInterface)
 	{
@@ -1059,9 +1070,6 @@ bool UGFPakPlugin::Unmount_Internal()
 		}
 		PluginInterface = nullptr;
 	}
-
-	// We first remove the plugin assets from the App Asset Registry
-	UnregisterPluginAssetsFromAssetRegistry();
 
 	// Then we can delete the objects
 	UnloadPakPluginObjects_Internal(FOperationCompleted::CreateLambda([WeakThis = TWeakObjectPtr<UGFPakPlugin>(this), PakFilePath = PakFilePath]
@@ -1153,7 +1161,7 @@ void UGFPakPlugin::PurgePakPluginContent(const FString& PakPluginName, const TFu
 		}
 		const FNameBuilder PackageName(Package->GetFName());
 		const FStringView PackageMountPointName = FPathViews::GetMountPointNameFromPath(PackageName);
-		if (PakPluginName == PackageMountPointName) //todo: is there a better way to figure out if this is from this plugin?
+		if (PakPluginName == PackageMountPointName) //todo: is there a better way to figure out if this is from this plugin? Would not work for content outside of Plugin folder
 		{
 			constexpr ERenameFlags PkgRenameFlags = REN_ForceNoResetLoaders | REN_DoNotDirty | REN_DontCreateRedirectors | REN_NonTransactional | REN_SkipGeneratedClasses;
 			check(Package->Rename(*MakeUniqueObjectName(nullptr, UPackage::StaticClass(), *FString::Printf(TEXT("%s_PAKPLUGINUNLOADED"), *Package->GetName())).ToString(), nullptr, PkgRenameFlags));
@@ -1376,7 +1384,7 @@ bool UGFPakPlugin::UnloadPluginsAssets(const TSet<FString>& PluginNames, FText* 
 	if (!PluginNames.IsEmpty())
 	{
 		const double StartTime = FPlatformTime::Seconds();
-
+		
 		TArray<UPackage*> PackagesToUnload;
 		for (TObjectIterator<UPackage> It; It; ++It)
 		{
@@ -1700,6 +1708,7 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 #endif
 		// Collect garbage.
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		FlushRenderingCommands();
 #if WITH_EDITOR
 		ObjectsThatHadFlagsCleared.Empty();
 		PackagesBeingUnloaded = nullptr;
@@ -1765,20 +1774,20 @@ void UGFPakPlugin::RestoreStandaloneOnReachableObjects()
 	check(GIsEditor);
 
 	//todo: is there a UE5.3 equivalent?
-	// if (PackagesBeingUnloaded && ObjectsThatHadFlagsCleared.Num() > 0)
-	// {
-	// 	for (UPackage* PackageBeingUnloaded : *PackagesBeingUnloaded)
-	// 	{
-	// 		ForEachObjectWithPackage(PackageBeingUnloaded, [](UObject* Object)
-	// 		{
-	// 			if (ObjectsThatHadFlagsCleared.Contains(Object))
-	// 			{
-	// 				Object->SetFlags(RF_Standalone);
-	// 			}
-	// 			return true;
-	// 		}, true, RF_NoFlags, UE::GC::GUnreachableObjectFlag);
-	// 	}
-	// }
+	if (PackagesBeingUnloaded && ObjectsThatHadFlagsCleared.Num() > 0)
+	{
+		for (UPackage* PackageBeingUnloaded : *PackagesBeingUnloaded)
+		{
+			ForEachObjectWithPackage(PackageBeingUnloaded, [](UObject* Object)
+			{
+				if (ObjectsThatHadFlagsCleared.Contains(Object))
+				{
+					Object->SetFlags(RF_Standalone);
+				}
+				return true;
+			}, true, RF_NoFlags, EInternalObjectFlags::Unreachable);
+		}
+	}
 }
 #endif
 
@@ -1898,6 +1907,11 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 			}
 #endif
 
+			ForEachObjectWithOuter(AssetToDelete, [](UObject* Object)
+			{
+				Object->RemoveFromRoot();
+				Object->ClearFlags(RF_Standalone);
+			}, true);
 			if (UWorld* World = Cast<UWorld>(AssetToDelete))
 			{
 				World->CleanupWorld();
@@ -1907,13 +1921,14 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 		if (bIsEmptyPackage)
 		{
 			PackageNamesToRemove.Add(AssetData.PackageName);
-#if WITH_EDITOR
-			// If there is a package metadata object, clear the standalone flag so the package can be truly emptied upon GC
-			if (UMetaData* MetaData = DeletedObjectPackage ? DeletedObjectPackage->GetMetaData() : nullptr)
+			if (DeletedObjectPackage)
 			{
-				MetaData->ClearFlags(RF_Standalone);
+				ForEachObjectWithOuter(DeletedObjectPackage, [](UObject* Object)
+				{
+					Object->RemoveFromRoot();
+					Object->ClearFlags(RF_Standalone);
+				}, true);
 			}
-#endif
 		}
 		
 		if (AssetToDelete)
@@ -1952,7 +1967,7 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 	
 	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 	FlushRenderingCommands();
-
+	
 	{
 		TSet<FString> FilenamesToRemove;
 		for (const TTuple<FName, TSharedPtr<const FGFPakFilenameMap>>& Entry : PakFilenamesMap)

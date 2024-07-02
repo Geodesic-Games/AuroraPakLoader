@@ -57,14 +57,18 @@ void UGFPakLoaderSubsystem::Deinitialize()
 	bIsShuttingDown = true;
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("Deinitializing the UGFPakLoaderSubsystem..."))
 	OnSubsystemShuttingDownDelegate.Broadcast();
+
+	// todo: there might still be some multithreading issues as we are deinitializing the PakPlugins outside of the GameFeaturesPakPluginsLock Write lock (which is needed to avoid deadlocks)
+	// Each PakPlugin should have its own lock to access its content as it can be accessed from the AsyncLoadingThread via FGFPakLoaderPlatformFile
+	EnumeratePakPlugins([](UGFPakPlugin* PakPlugin)
+	{
+		PakPlugin->Deinitialize();
+		PakPlugin->ConditionalBeginDestroy();
+		return EForEachResult::Continue;
+	});
 	
 	{
-		FScopeLock Lock(&GameFeaturesPakPluginsLock);
-		for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
-		{
-			PakPlugin->Deinitialize();
-			PakPlugin->ConditionalBeginDestroy();
-		}
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_Write);
 		GameFeaturesPakPlugins.Empty();
 	}
 	
@@ -160,7 +164,7 @@ UGFPakPlugin* UGFPakLoaderSubsystem::GetOrAddPakPlugin(const FString& InPakPlugi
 	
 	UGFPakPlugin* PakPlugin;
 	{
-		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
 		UGFPakPlugin** ExistingPakPlugin = Algo::FindByPredicate(GameFeaturesPakPlugins,
 			[&PakPluginPath](const UGFPakPlugin* PakPlugin)
 			{
@@ -172,7 +176,10 @@ UGFPakPlugin* UGFPakLoaderSubsystem::GetOrAddPakPlugin(const FString& InPakPlugi
 		{
 			return *ExistingPakPlugin;
 		}
-	
+	}
+	{
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_Write);
+		
 		PakPlugin = NewObject<UGFPakPlugin>(this);
 		PakPlugin->SetPakPluginDirectory(PakPluginPath);
 	
@@ -296,27 +303,30 @@ UGFPakPlugin* UGFPakLoaderSubsystem::FindMountedPakContainingFile(const TCHAR* O
 {
 	const FName FilenameF {OriginalFilename};
 	const FString Extension {FPaths::GetExtension(OriginalFilename, true)};
-	TArray<UGFPakPlugin*> Plugins = GetPakPluginsWithStatusAtLeast(EGFPakLoaderStatus::Mounted); //todo: replace with some sort of enumerator
-	for (UGFPakPlugin* Plugin : Plugins)
+	
+	UGFPakPlugin* Plugin = nullptr;
+	EnumeratePakPluginsWithStatus<EComparison::GreaterOrEqual>(EGFPakLoaderStatus::Mounted, [&Plugin, &FilenameF, &PakAdjustedFilename](UGFPakPlugin* PakPlugin)
 	{
-		if (const TSharedPtr<const FGFPakFilenameMap>* MountedFilenameFound = Plugin->GetPakFilenamesMap().Find(FilenameF))
+		if (const TSharedPtr<const FGFPakFilenameMap>* MountedFilenameFound = PakPlugin->GetPakFilenamesMap().Find(FilenameF))
 		{
 			if (const TSharedPtr<const FGFPakFilenameMap>& MountedFilename = *MountedFilenameFound)
 			{
+				Plugin = PakPlugin;
 				if (PakAdjustedFilename)
 				{
 					*PakAdjustedFilename = MountedFilename->AdjustedFullFilename;
 				}
-				return Plugin;
+				return EForEachResult::Break;
 			}
 		}
-	}
+		return EForEachResult::Continue;
+	});
 	
-	if (PakAdjustedFilename)
+	if (!Plugin && PakAdjustedFilename)
 	{
 		PakAdjustedFilename->Empty();
 	}
-	return nullptr;
+	return Plugin;
 }
 
 void UGFPakLoaderSubsystem::OnAssetManagerCreated()
@@ -383,6 +393,8 @@ void UGFPakLoaderSubsystem::Start()
 			UE_LOG(LogGFPakLoader, Warning, TEXT("The default Pak folder location from the GF Pak Loader Settings does not exist: '%s'"), *Path)
 		}
 	}
+
+	OnStartupPaksAddedDelegate.Broadcast();
 }
 
 void UGFPakLoaderSubsystem::PakPluginStatusChanged(UGFPakPlugin* PakPlugin, EGFPakLoaderStatus OldValue, EGFPakLoaderStatus NewValue)
@@ -395,7 +407,7 @@ void UGFPakLoaderSubsystem::PakPluginDestroyed(UGFPakPlugin* PakPlugin)
 	OnPakPluginRemovedDelegate.Broadcast(PakPlugin);
 	if (!bIsShuttingDown)
 	{
-		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_Write);
 		GameFeaturesPakPlugins.Remove(PakPlugin);
 	}
 	
@@ -409,7 +421,7 @@ void UGFPakLoaderSubsystem::RegisterMountPoint(const FString& RootPath, const FS
 {
 	// To double-check the Mount Points being added, we could listen to the delegate FPackageName::OnContentPathMounted()
 	{
-		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
 		for (const UGFPakPlugin* GFPakPlugin : GameFeaturesPakPlugins)
 		{
 			if (ensure(IsValid(GFPakPlugin)) && GFPakPlugin->GetStatus() > EGFPakLoaderStatus::Unmounted)

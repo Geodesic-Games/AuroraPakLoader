@@ -87,7 +87,7 @@ public:
 	FPluginEvent& OnDestroyed() { return OnDestroyedDelegate; }
 
 	/**
-	 * Loads the Plugin Data and ensures the directory points to a valid Pak Plugin.
+	 * Loads the Plugin Data and ensures the directory points to a valid Pak Plugin. Should be called after SetPakPluginDirectory.
 	 * If successful, the Status of this instance will change to  `Unmounted`, unless the plugin data was already loaded in which case the Status will not change.
 	 * @return Returns true if we were able to load the plugin data and the plugin looks valid or if the plugin data was already loaded.
 	 */
@@ -214,16 +214,38 @@ public:
 		return false;
 	}
 
+	/**
+	 * Returns the name of the folder of this Pak Plugin.
+	 * If GetPakPluginDirectory returns 'C:/Pak/my-plugin-name/', this function would return `my-plugin-name`
+	 */
+	FString GetPakPluginDirectoryName() const { return FPaths::GetPathLeaf(GetPakPluginDirectory()); }
+	
 	/** Returns the current status of this Pak Plugin */
 	EGFPakLoaderStatus GetStatus() const { return Status; }
 	/** Returns true if the current status of this Pak Plugin is at least or equal to the given one */
 	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader")
-	bool IsStatusAtLeast(const EGFPakLoaderStatus MinStatus) const { return Status >= MinStatus; }
+	bool IsStatusLessThan(const EGFPakLoaderStatus MinStatus) const { return Status < MinStatus; }
+	/** Returns true if the current status of this Pak Plugin is at most or equal to the given one */
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader")
+	bool IsStatusLessOrEqualTo(const EGFPakLoaderStatus MinStatus) const { return Status <= MinStatus; }
+	/** Returns true if the current status of this Pak Plugin is at most or equal to the given one */
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader")
+	bool IsStatusEqualTo(const EGFPakLoaderStatus MinStatus) const { return Status == MinStatus; }
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader")
+	bool IsStatusGreaterOrEqualTo(const EGFPakLoaderStatus MinStatus) const { return Status >= MinStatus; }
+	/** Returns true if the current status of this Pak Plugin is at least or equal to the given one */
+	UFUNCTION(BlueprintPure, Category="GameFeatures Pak Loader")
+	bool IsStatusGreaterThan(const EGFPakLoaderStatus MinStatus) const { return Status > MinStatus; }
+	
 	/**
 	 * Returns the name of this Pak Plugin, for example 'my-plugin-name'.
 	 * Only Valid if Status is >= `Unmounted`
 	 */
 	const FString& GetPluginName() const { return PluginName; }
+	/**
+	 * Returns the name of this Pak Plugin, for example 'my-plugin-name', or the name of the folder of this plugin if it is not yet initialized.
+	 */
+	FString GetSafePluginName() const { return PluginName.IsEmpty() ? GetPakPluginDirectoryName() : PluginName; }
 	/**
 	 * Returns the expected Plugin MountPoint of this Pak Plugin, which should be the plugin name surrounded my '/'. Ex: '/my-plugin-name/'
 	 * Only Valid if Status is >= `Unmounted`
@@ -294,31 +316,31 @@ private:
 	inline static const TArray<const FAssetData*> EmptyAssetsData = {};
 private:
 	/** Returns the path to the Pak Plugin Directory this struct points to, for example 'C:/Pak/my-plugin-name/' */
-	UPROPERTY(BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	FString PakPluginDirectory;
 
 	/**
 	 * Returns the name of this Pak Plugin, for example 'my-plugin-name'.
 	 * Only Valid if Status is >= `Unmounted`
 	 */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	FString PluginName;
 	/**
 	 * Returns the path to the .uplugin file of this Pak Plugin, for example 'C:/Pak/my-plugin-name/my-plugin-name.uplugin'.
 	 * Only Valid if Status is >= `Unmounted`
 	 */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	FString PakFilePath;
 	/**
 	 * PakPlugin are not required to have a .uplugin if UGFPakLoaderSettings::bRequireUPluginPaks is false, so bHasUPlugin returns true if this PakPlugin has a .uplugin
 	 */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	bool bHasUPlugin = false;
 	/**
 	 * Returns the path to the .uplugin file of this Pak Plugin, for example 'C:/Pak/my-plugin-name/my-plugin-name.uplugin'.
 	 * Only Valid if Status is >= `Unmounted`
 	 */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	FString UPluginPath;
 	/**
 	 * Returns the plugin descriptor loaded from the .uplugin of this Pak Plugin.
@@ -327,30 +349,30 @@ private:
 	FPluginDescriptor PluginDescriptor;
 
 	/** Returns the current status of this Pak Plugin */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	EGFPakLoaderStatus Status = EGFPakLoaderStatus::NotInitialized;
 	/**
 	 * Returns true if the plugin was a GameFeatures plugin.
 	 * Only Valid if Status is >= `Unmounted`
 	 */
-	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess))
+	UPROPERTY(Transient, BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))
 	bool bIsGameFeaturesPlugin = false;
 
 	TArray<TSharedPtr<FPluginMountPoint>> PakPluginMountPoints;
 	IPakFile* MountedPakFile = nullptr;
 
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating Game Features", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating Game Features", meta = (AllowPrivateAccess = "true"))
 	FPluginEvent OnDeactivatingGameFeaturesDelegate;
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Unmounting", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Unmounting", meta = (AllowPrivateAccess = "true"))
 	FPluginEvent OnUnmountingDelegate;
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Deactivating", meta = (AllowPrivateAccess = "true"))
 	FPluginEvent OnDeinitializingDelegate;
 	
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Status Changed", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Status Changed", meta = (AllowPrivateAccess = "true"))
 	FOnStatusChanged OnStatusChangedDelegate;
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Begin Destroy", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Begin Destroy", meta = (AllowPrivateAccess = "true"))
 	FPluginEvent OnBeginDestroyDelegate;
-	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Destroyed", meta = (AllowPrivateAccess))
+	UPROPERTY(BlueprintAssignable, Category="GameFeatures Pak Loader", DisplayName = "On Destroyed", meta = (AllowPrivateAccess = "true"))
 	FPluginEvent OnDestroyedDelegate;
 
 	TOptional<FAssetRegistryState> PluginAssetRegistry;

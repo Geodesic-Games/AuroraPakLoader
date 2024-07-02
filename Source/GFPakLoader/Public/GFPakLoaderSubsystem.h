@@ -37,6 +37,11 @@ public:
 	virtual void Deinitialize() override;
 
 	FGFPakLoaderSubsystemEvent& OnSubsystemReady() { return OnSubsystemReadyDelegate; }
+	/**
+	 * Called after OnSubsystemReady once the Startup Paks have ben added.
+	 * See UGFPakLoaderSettings::bAddPakPluginsFromStartupLoadDirectory and GetDefaultPakPluginFolder
+	 */
+	FGFPakLoaderSubsystemEvent& OnStartupPaksAdded() { return OnStartupPaksAddedDelegate; }
 	FGFPakLoaderSubsystemEvent& OnSubsystemShuttingDown() { return OnSubsystemShuttingDownDelegate; }
 	FGFPakLoaderSubsystemEvent& OnSubsystemShutdown() { return OnSubsystemShutdownDelegate; }
 	
@@ -73,40 +78,156 @@ public:
 	UGFPakPlugin* GetOrAddPakPlugin(const FString& InPakPluginPath, bool& bIsNewlyAdded);
 
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
-	TArray<UGFPakPlugin*> GetPakPlugins() const //todo: need an enumerate function
+	TArray<UGFPakPlugin*> GetPakPlugins() const
 	{
-		FScopeLock Lock(&GameFeaturesPakPluginsLock);
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
 		return GameFeaturesPakPlugins;
 	}
+	/** Return the list of PakPlugins sorted by their GetSafePluginName. Slower than GetPakPlugins but useful for UI */
 	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
-	TArray<UGFPakPlugin*> GetPakPluginsWithStatus(EGFPakLoaderStatus Status) const
+	TArray<UGFPakPlugin*> GetSortedPakPlugins()
 	{
 		TArray<UGFPakPlugin*> Plugins;
 		{
-			FScopeLock Lock(&GameFeaturesPakPluginsLock);
-			Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
-			   [&Status](const UGFPakPlugin* PakPlugin)
-			   {
-				   return IsValid(PakPlugin) && PakPlugin->GetStatus() == Status;
-			   });
+			FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
+			Plugins = GameFeaturesPakPlugins;
 		}
-		return Plugins;
-	}
-	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
-	TArray<UGFPakPlugin*> GetPakPluginsWithStatusAtLeast(EGFPakLoaderStatus MinStatus) const //todo: create an Enumerate function
-	{
-		TArray<UGFPakPlugin*> Plugins;
+		Plugins.Sort([](const UGFPakPlugin& Lhs, const UGFPakPlugin& Rhs)
 		{
-			FScopeLock Lock(&GameFeaturesPakPluginsLock);
-			Algo::CopyIf(GameFeaturesPakPlugins, Plugins,
-			   [&MinStatus](const UGFPakPlugin* PakPlugin)
-			   {
-				   return IsValid(PakPlugin) && PakPlugin->IsStatusAtLeast(MinStatus);
-			   });
-		}
+			return Lhs.GetSafePluginName() < Rhs.GetSafePluginName();
+		});
 		return Plugins;
 	}
 
+	enum class EComparison : uint8
+	{
+		Equal,
+		NotEqual,
+		Greater,
+		Less,
+		GreaterOrEqual,
+		LessOrEqual,
+	};
+	enum class EForEachResult : uint8
+	{
+		Continue,
+		Break,
+	};
+	
+	/**
+	 * Enumerate all the PakPlugins registered with the subsystem.
+	 * @param Callback Callback to be called on each PakPlugin. It is guaranteed that the PakPlugin is a valid UObject
+	 */
+	void EnumeratePakPlugins(TFunctionRef<EForEachResult(UGFPakPlugin* PakPlugin)> Callback)
+	{
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
+		for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
+		{
+			if (IsValid(PakPlugin))
+			{
+				if (Callback(PakPlugin) == EForEachResult::Break)
+				{
+					break;
+				}
+			}
+		}
+	}
+	/**
+	 * Enumerate all the PakPlugins registered with the subsystem.
+	 * @param Predicate Predicate that must return true for the Callback to be run on the given PakPlugin.
+	 * @param Callback Callback to be called on each PakPlugin. It is guaranteed that the PakPlugin is a valid UObject
+	 */
+	void EnumeratePakPlugins(TFunctionRef<bool(const UGFPakPlugin* PakPlugin)> Predicate, TFunctionRef<EForEachResult(UGFPakPlugin* PakPlugin)> Callback)
+	{
+		FRWScopeLock Lock(GameFeaturesPakPluginsLock, SLT_ReadOnly);
+		for (UGFPakPlugin* PakPlugin : GameFeaturesPakPlugins)
+		{
+			if (IsValid(PakPlugin))
+			{
+				if (!Predicate(PakPlugin))
+				{
+					continue;
+				}
+				
+				if (Callback(PakPlugin) == EForEachResult::Break)
+				{
+					break;
+				}
+			}
+		}
+	}
+	
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
+	TArray<UGFPakPlugin*> GetPakPluginsWithStatusEqualTo(EGFPakLoaderStatus Status)
+	{
+		return GetPakPluginsWithStatus<EComparison::Equal>(Status);
+	}
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
+	TArray<UGFPakPlugin*> GetPakPluginsWithStatusGreaterOrEqualTo(EGFPakLoaderStatus MinStatus)
+	{
+		return GetPakPluginsWithStatus<EComparison::GreaterOrEqual>(MinStatus);
+	}
+	UFUNCTION(BlueprintCallable, Category="GameFeatures Pak Loader Subsystem")
+	TArray<UGFPakPlugin*> GetPakPluginsWithStatusLessOrEqualTo(EGFPakLoaderStatus MaxStatus)
+	{
+		return GetPakPluginsWithStatus<EComparison::LessOrEqual>(MaxStatus);
+	}
+	
+
+	/**
+	 * Enumerate all the PakPlugins registered with the subsystem with their Status matching the Status and Comparison.
+	 * @param Callback Callback to be called on each PakPlugin. It is guaranteed that the PakPlugin is a valid UObject. Return true to break out of the loop.
+	 */
+	template <EComparison Comparison>
+	void EnumeratePakPluginsWithStatus(EGFPakLoaderStatus Status, TFunctionRef<EForEachResult(UGFPakPlugin* PakPlugin)> Callback)
+	{
+		auto Predicate =[Status](const UGFPakPlugin* PakPlugin)
+		{
+			if constexpr (Comparison == EComparison::Equal)
+			{
+				return PakPlugin->GetStatus() == Status;
+			}
+			else if constexpr (Comparison == EComparison::NotEqual)
+			{
+				return PakPlugin->GetStatus() != Status;
+			}
+			else if constexpr (Comparison == EComparison::GreaterOrEqual)
+			{
+				return PakPlugin->GetStatus() >= Status;
+			}
+			else if constexpr (Comparison == EComparison::Greater)
+			{
+				return PakPlugin->GetStatus() > Status;
+			}
+			else if constexpr (Comparison == EComparison::LessOrEqual)
+			{
+				return PakPlugin->GetStatus() <= Status;
+			}
+			else if constexpr (Comparison == EComparison::Less)
+			{
+				return PakPlugin->GetStatus() < Status;
+			}
+			else
+			{
+				return false;
+			}
+		};
+		
+		EnumeratePakPlugins(Predicate, Callback);
+	}
+	
+	template <EComparison Comparison>
+	TArray<UGFPakPlugin*> GetPakPluginsWithStatus(EGFPakLoaderStatus Status)
+	{
+		TArray<UGFPakPlugin*> Plugins;
+		EnumeratePakPluginsWithStatus<Comparison>(Status, [&Plugins](UGFPakPlugin* PakPlugin)
+		{
+			Plugins.Add(PakPlugin);
+			return EForEachResult::Continue;
+		});
+		return Plugins;
+	}
+	
 	TSharedPtr<FPluginMountPoint> AddOrCreateMountPointFromContentPath(const FString& InContentPath);
 
 	bool IsReady() const
@@ -147,11 +268,12 @@ private:
 	void OnEngineLoopInitCompleted();
 	void Start();
 
-	mutable FCriticalSection GameFeaturesPakPluginsLock;
+	mutable FRWLock GameFeaturesPakPluginsLock;
 	UPROPERTY(Transient)
 	TArray<UGFPakPlugin*> GameFeaturesPakPlugins;
 
 	FGFPakLoaderSubsystemEvent OnSubsystemReadyDelegate;
+	FGFPakLoaderSubsystemEvent OnStartupPaksAddedDelegate;
 	FGFPakLoaderSubsystemEvent OnSubsystemShuttingDownDelegate;
 	FGFPakLoaderSubsystemEvent OnSubsystemShutdownDelegate;
 	
