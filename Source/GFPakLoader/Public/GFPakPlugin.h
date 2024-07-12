@@ -8,6 +8,7 @@
 #include "Engine/World.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/Paths.h"
+#include "GameFeaturePluginOperationResult.h"
 #include "GFPakPlugin.generated.h"
 
 

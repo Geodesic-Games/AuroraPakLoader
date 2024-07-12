@@ -27,6 +27,7 @@ public class GFPakLoader : ModuleRules
 				"Core",
 				"AssetRegistry",
 				"Projects",
+				"GameFeatures"
 			}
 		);
 		PrivateDependencyModuleNames.AddRange(
