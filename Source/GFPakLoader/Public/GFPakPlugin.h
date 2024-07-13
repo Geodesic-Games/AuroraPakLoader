@@ -291,7 +291,12 @@ public:
 	 * Only Valid if Status is >= `Mounted`
 	 */
 	const FAssetRegistryState* GetPluginAssetRegistry() const { return Status >= EGFPakLoaderStatus::Mounted ? PluginAssetRegistry.GetPtrOrNull() : nullptr; }
-
+	/**
+		 * Returns the PluginAsset Registry
+		 * Only Valid if Status is >= `Mounted`
+		 */
+	const TSharedPtr<IPlugin>& GetPluginInterface() const { return PluginInterface; }
+	
 	/**
 	 * Returns the FAssetData pointing to the UGameFeatureData of this GFPakPlugin.
 	 * Only Valid if Status is >= `Mounted` and if the plugin is a GameFeatures plugin.

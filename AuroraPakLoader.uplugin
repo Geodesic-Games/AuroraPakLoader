@@ -24,11 +24,25 @@
 			"Name": "GFPakLoaderEditor",
 			"Type": "Editor",
 			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "GFPakExporter",
+			"Type": "Editor",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "GFPakExporterCommandlet",
+			"Type": "Editor",
+			"LoadingPhase": "EarliestPossible"
 		}
 	],
 	"Plugins": [
 		{
 			"Name": "GameFeatures",
+			"Enabled": true
+		},
+		{
+			"Name": "ContentBrowserAssetDataSource",
 			"Enabled": true
 		}
 	]
