@@ -7,6 +7,7 @@
 
 #include "SPakRenderWindow.generated.h"
 
+class UMoviePipelineExecutorJob;
 class ULevelSequence;
 
 USTRUCT()
@@ -38,11 +39,20 @@ public:
 
 	/** Constructs this widget with InArgs */
 	void Construct(const FArguments& InArgs);
-	FReply OnLoadSequencesButtonClicked();
+	void LoadAllPakSequences();
 	FReply OnRenderSequenceButtonClicked();
-
-	TSharedRef<ITableRow> OnGenerateRow(TSharedPtr<FPakSequenceData> Item, const TSharedRef<STableViewBase>& OwnerTable);
-
+	FReply RemoveSelectedJob();
+	
+	void AddSequenceToQueue(TSharedPtr<FPakSequenceData> Item, ESelectInfo::Type SelectInfo);
+	
+	TSharedRef<SWidget> OnGetAddSequenceMenuContent();
+	TSharedRef<ITableRow> OnGenerateJobRow(TSharedPtr<UMoviePipelineExecutorJob> Item, const TSharedRef<STableViewBase>& OwnerTable);
+	TSharedRef<ITableRow> OnGenerateSequenceRow(TSharedPtr<FPakSequenceData> Item, const TSharedRef<STableViewBase>& OwnerTable);
+	
 	TArray<TSharedPtr<FPakSequenceData>> SequenceDataList;
 	TSharedPtr<SListView<TSharedPtr<FPakSequenceData>>> ListViewWidget;
+
+	TArray<TSharedPtr<UMoviePipelineExecutorJob>> JobsList;
+	TSharedPtr<SListView<TSharedPtr<UMoviePipelineExecutorJob>>> JobsListWidget;
+	
 };

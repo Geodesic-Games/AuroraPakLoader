@@ -37,10 +37,6 @@
 			"Enabled": true
 		},
 		{
-			"Name": "SequencerScripting",
-			"Enabled": true
-		},
-		{
 			"Name": "MovieRenderPipeline",
 			"Enabled": true
 		}
