@@ -124,7 +124,14 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 
 	// Create the menu
 	FToolMenuSection& Section = InMenu->AddSection(TEXT("GFPakExporterActions"), LOCTEXT("GFPakExporterActionsMenuHeading", "Aurora"));
-	Section.InsertPosition = FToolMenuInsert(TEXT("PathViewFolderOptions"), EToolMenuInsertType::Before);
+	if (bIsAssetMenu)
+	{
+		Section.InsertPosition = FToolMenuInsert(TEXT("AssetContextExploreMenuOptions"), EToolMenuInsertType::After);
+	}
+	else
+	{
+		Section.InsertPosition = FToolMenuInsert(TEXT("PathViewFolderOptions"), EToolMenuInsertType::Before);
+	}
 	
 	{
 		const FText PluginOrContent = FText::FromString(bIsPluginDLC ? TEXT("Plugin") : TEXT("Content"));
