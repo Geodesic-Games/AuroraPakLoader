@@ -1,4 +1,4 @@
-﻿// Copyright Epic Games, Inc. All Rights Reserved.
+﻿// Copyright GeoTech BV
 
 #include "GFPakExporterCommandletLog.h"
 

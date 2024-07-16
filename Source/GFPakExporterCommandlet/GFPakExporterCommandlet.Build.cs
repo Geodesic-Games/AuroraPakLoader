@@ -1,4 +1,6 @@
-﻿using UnrealBuildTool;
+﻿// Copyright GeoTech BV
+
+using UnrealBuildTool;
 
 public class GFPakExporterCommandlet : ModuleRules
 {
@@ -12,6 +14,7 @@ public class GFPakExporterCommandlet : ModuleRules
                 "Core",
                 "CoreUObject",
                 "UnrealEd",
+                "GFPakExporter",
             }
         );
 
@@ -27,6 +30,7 @@ public class GFPakExporterCommandlet : ModuleRules
                 "AssetTools",
                 "UnrealEd",
                 "DeveloperToolSettings",
+                "PluginUtils",
             }
         );
     }

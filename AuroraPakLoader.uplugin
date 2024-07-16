@@ -28,7 +28,7 @@
 		{
 			"Name": "GFPakExporter",
 			"Type": "Editor",
-			"LoadingPhase": "Default"
+			"LoadingPhase": "EarliestPossible"
 		},
 		{
 			"Name": "GFPakExporterCommandlet",

@@ -1,4 +1,6 @@
-﻿using UnrealBuildTool;
+﻿// Copyright GeoTech BV
+
+using UnrealBuildTool;
 
 public class GFPakExporter : ModuleRules
 {
@@ -11,6 +13,7 @@ public class GFPakExporter : ModuleRules
             {
                 "Core",
                 "LauncherServices",
+                "Json",
             }
         );
 
@@ -27,7 +30,10 @@ public class GFPakExporter : ModuleRules
                 "Projects",
                 "GFPakLoader",
                 "LauncherServices",
-                "GFPakExporterCommandlet",
+                "JsonUtilities",
+                "PluginUtils",
+                "AssetRegistry",
+                "ContentBrowser",
             }
         );
     }
