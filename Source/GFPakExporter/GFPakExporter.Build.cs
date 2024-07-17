@@ -14,6 +14,8 @@ public class GFPakExporter : ModuleRules
                 "Core",
                 "LauncherServices",
                 "Json",
+                "EditorSubsystem",
+                "UnrealEd",
             }
         );
 
@@ -34,6 +36,7 @@ public class GFPakExporter : ModuleRules
                 "PluginUtils",
                 "AssetRegistry",
                 "ContentBrowser",
+                "ToolWidgets",
             }
         );
     }

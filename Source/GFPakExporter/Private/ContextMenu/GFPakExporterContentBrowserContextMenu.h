@@ -39,14 +39,4 @@ private:
 	 */
 	static void GetPluginsFromSelectedFilesAndFolders(const TArray<FString>& InSelectedPackagePaths, const TArray<FSoftObjectPath>& InSelectedAssets,
 		TArray<TSharedRef<IPlugin>>& OutSelectedPlugins, TArray<TSharedRef<IPlugin>>& OutAllPlugins);
-
-	
-	static void MessageReceived(const FString& InMessage); //todo: move to subsystem
-	static void HandleStageStarted(const FString& InStage); //todo: move to subsystem
-	static void HandleStageCompleted(const FString& InStage, double StageTime); //todo: move to subsystem
-	static void LaunchCompleted(bool Outcome, double ExecutionTime, int32 ReturnCode); //todo: move to subsystem
-	static void LaunchCanceled(double ExecutionTime); //todo: move to subsystem
-
-	static ILauncherPtr Launcher; //todo: move to subsystem
-	static ILauncherWorkerPtr LauncherWorker; //todo: move to subsystem
 };

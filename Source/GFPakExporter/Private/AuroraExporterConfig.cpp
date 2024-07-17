@@ -4,19 +4,86 @@
 #include "AuroraExporterConfig.h"
 
 #include "GFPakExporterLog.h"
+#include "GFPakLoaderSubsystem.h"
 #include "JsonObjectConverter.h"
 #include "PluginUtils.h"
+#include "Interfaces/IPluginManager.h"
 
+
+bool FAuroraExporterConfig::IsPluginDLC(bool bEnsureDLCName, FString* OutPluginName) const
+{
+	if (OutPluginName)
+	{
+		*OutPluginName = FString{};
+	}
+	
+	if (!Assets.IsEmpty() || PackagePaths.Num() != 1)
+	{
+		return false;
+	}
+	FString Path = PackagePaths[0].ToString();
+	// ensure there are no slashes
+	Path.RemoveFromStart(TEXT("/"));
+	Path.RemoveFromEnd(TEXT("/"));
+	
+	const FName MountPoint = FPackageName::GetPackageMountPoint(Path);
+	if (MountPoint.ToString() != Path)
+	{
+		return false;
+	}
+
+	TSharedPtr<IPlugin> MatchingPlugin;
+	IPluginManager& PluginManager = IPluginManager::Get();
+	const TArray<TSharedRef<IPlugin>> AllPlugins = PluginManager.GetDiscoveredPlugins(); // We don't care if they are enabled or not
+	for (const TSharedRef<IPlugin>& Plugin : AllPlugins)
+	{
+		if (Plugin->CanContainContent())
+		{
+			const FString MountedAssetPath = Plugin->GetMountedAssetPath();
+			const FName PluginMountPoint = FPackageName::GetPackageMountPoint(MountedAssetPath);
+			if (MountPoint == PluginMountPoint)
+			{
+				MatchingPlugin = Plugin;
+				break;
+			}
+		}
+	}
+	if (!MatchingPlugin)
+	{
+		return false;
+	}
+
+	bool bIsPakPlugin = false;
+	UGFPakLoaderSubsystem::Get()->EnumeratePakPluginsWithStatus<UGFPakLoaderSubsystem::EComparison::GreaterOrEqual>(EGFPakLoaderStatus::Mounted,
+	[&MatchingPlugin, &bIsPakPlugin](UGFPakPlugin* PakPlugin)
+	{
+		if (PakPlugin->GetPluginInterface())
+		{
+			if (MatchingPlugin == PakPlugin->GetPluginInterface())
+			{
+				bIsPakPlugin = true;
+				return UGFPakLoaderSubsystem::EForEachResult::Break;
+			}
+		}
+		return UGFPakLoaderSubsystem::EForEachResult::Continue;
+	});
+	
+	if (bIsPakPlugin)
+	{
+		return false;
+	}
+
+	if (OutPluginName)
+	{
+		*OutPluginName = Path;
+	}
+	
+	return !bEnsureDLCName || Path == DLCName;
+}
 
 bool FAuroraExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
 {
 	if (Assets.Contains(AssetData.GetSoftObjectPath()))
-	{
-		return true;
-	}
-	
-	const FName MountPoint = FPackageName::GetPackageMountPoint(AssetData.PackagePath.ToString());
-	if (Plugins.Contains(MountPoint))
 	{
 		return true;
 	}
@@ -121,7 +188,7 @@ TOptional<FAuroraExporterConfig> FAuroraExporterConfig::FromPluginName(const FSt
 	{
 		FAuroraExporterConfig Config;
 		Config.DLCName = InPluginName;
-		Config.Plugins.Add(FName{InPluginName});
+		Config.PackagePaths.Add(FName{TEXT("/") + InPluginName});
 		return Config;
 	}
 	return TOptional<FAuroraExporterConfig>{};
