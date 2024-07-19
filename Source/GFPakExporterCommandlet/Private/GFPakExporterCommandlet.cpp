@@ -193,11 +193,10 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
     
     // As per UCookOnTheFlyServer::RecordDLCPackagesFromBaseGame, the OverrideAssetRegistry cannot be empty, so we create a copy of the project one
     FAssetRegistryState PluginAssetRegistry;
-    {
-        const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
-        IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-        AssetRegistry.InitializeTemporaryAssetRegistryState(PluginAssetRegistry, FAssetRegistrySerializationOptions{UE::AssetRegistry::ESerializationTarget::ForDevelopment});
-    }
+    const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
+    IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
+    AssetRegistry.InitializeTemporaryAssetRegistryState(PluginAssetRegistry, FAssetRegistrySerializationOptions{UE::AssetRegistry::ESerializationTarget::ForDevelopment});
+    
     
     // Then we list and remove the assets that should be packaged
     UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Enumerate Assets..."))
@@ -210,12 +209,25 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
         }
         return true;
     });
+
+    if (ExporterConfig.bIncludeHardReferences)
+    {
+        TArray<FName> DependentPackageNames = FGFPakExporterModule::GetAssetDependencies(Assets);
+        for (const FName& PackageName : DependentPackageNames)
+        {
+            TArrayView<const FAssetData* const> DependentAssets = PluginAssetRegistry.GetAssetsByPackageName(PackageName);
+            for (const FAssetData* const Asset : DependentAssets)
+            {
+                Assets.AddUnique(Asset->GetSoftObjectPath());
+            }
+        }
+    }
     
-    for (const FSoftObjectPath& AssetData : Assets)
+    for (const FSoftObjectPath& Asset : Assets)
     {
         bool bRemovedAssetData;
         bool bRemovedPackageData;
-        PluginAssetRegistry.RemoveAssetData(AssetData, false, bRemovedAssetData,bRemovedPackageData);
+        PluginAssetRegistry.RemoveAssetData(Asset, true, bRemovedAssetData,bRemovedPackageData);
     }
     
     // Finally, we save the Asset Registry

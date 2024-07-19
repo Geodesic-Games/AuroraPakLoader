@@ -12,7 +12,7 @@
 /**
  * 
  */
-UCLASS(Blueprintable)
+UCLASS(Blueprintable) //todo: add some BP functions
 class GFPAKEXPORTER_API UGFPakExporterSubsystem : public UEditorSubsystem
 {
 	GENERATED_BODY()

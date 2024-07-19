@@ -18,17 +18,23 @@ public:
 	FString DLCName;
 
 	/**
-	 * List of Folders to include in this expor (all their content and subfolders will also be included). They need to start with a MountPoint.
+	 * List of Folders to include in this export (all their content and subfolders will also be included). They need to start with a MountPoint.
 	 * Ex: /Game/Folder/Maps  or /PluginName/Blueprints
 	 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
-	TArray<FName> PackagePaths;
+	TArray<FName> PackagePaths; //todo: allow packages to not export subfolders 
 	
 	/**
 	 * List of Assets to include in this export.
 	 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
 	TArray<FSoftObjectPath> Assets;
+
+	/**
+	 * If true, all assets that the packaged Assets are dependent on will also be included.
+	 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
+	bool bIncludeHardReferences = true; //todo: make the UI display the dependent packages
 
 	bool IsEmpty() const
 	{
