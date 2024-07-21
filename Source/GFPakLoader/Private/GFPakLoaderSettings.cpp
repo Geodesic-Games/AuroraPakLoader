@@ -3,6 +3,7 @@
 
 #include "GFPakLoaderSettings.h"
 
+#include "GFPakLoaderSubsystem.h"
 #include "Misc/Paths.h"
 
 UGFPakLoaderSettings::UGFPakLoaderSettings()
@@ -19,6 +20,13 @@ void UGFPakLoaderSettings::PostEditChangeProperty(FPropertyChangedEvent& Propert
 	if(PropertyChangedEvent.GetMemberPropertyName() == GET_MEMBER_NAME_CHECKED(UGFPakLoaderSettings, StartupPakLoadDirectory))
 	{
 		SetPakLoadPath(StartupPakLoadDirectory.Path);
+	}
+	if(PropertyChangedEvent.GetMemberPropertyName() == GET_MEMBER_NAME_CHECKED(UGFPakLoaderSettings, bEnsureWorldIsLoadedInMemoryBeforeLoadingMap))
+	{
+		if (UGFPakLoaderSubsystem* Subsystem = UGFPakLoaderSubsystem::Get())
+		{
+			Subsystem->OnEnsureWorldIsLoadedInMemoryBeforeLoadingMapChanged();
+		}
 	}
 }
 #endif

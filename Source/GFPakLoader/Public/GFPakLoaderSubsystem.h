@@ -266,6 +266,7 @@ private:
 	
 	void OnAssetManagerCreated();
 	void OnEngineLoopInitCompleted();
+	void PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& MapName);
 	void Start();
 
 	mutable FRWLock GameFeaturesPakPluginsLock;
@@ -317,4 +318,6 @@ public: // Debug Functions
 	void OnContentPathMounted(const FString& AssetPath, const FString& ContentPath);
 	UFUNCTION()
 	void OnContentPathDismounted(const FString& AssetPath, const FString& ContentPath);
+	
+	void OnEnsureWorldIsLoadedInMemoryBeforeLoadingMapChanged();
 };

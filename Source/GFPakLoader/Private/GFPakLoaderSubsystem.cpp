@@ -77,6 +77,8 @@ void UGFPakLoaderSubsystem::Deinitialize()
 	
 	FPackageName::OnContentPathMounted().RemoveAll(this);
 	FPackageName::OnContentPathDismounted().RemoveAll(this);
+
+	FCoreUObjectDelegates::PreLoadMapWithContext.RemoveAll(this);
 	
 	bAssetManagerCreated = false;
 	bStarted = false;
@@ -343,6 +345,44 @@ void UGFPakLoaderSubsystem::OnEngineLoopInitCompleted()
 	Start();
 }
 
+void UGFPakLoaderSubsystem::PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& MapName)
+{
+	UWorld* NewWorld = nullptr;
+
+	// Inspired by UEngine::LoadMap, but handling the case where a Package is valid but the its World has already been GCed
+	UPackage* WorldPackage = FindPackage(nullptr, *MapName);
+
+	if (WorldPackage)
+	{
+		NewWorld = UWorld::FindWorldInPackage(WorldPackage);
+
+		// If the world was not found, it could be a redirector to a world. If so, follow it to the destination world.
+		if (!NewWorld)
+		{
+			NewWorld = UWorld::FollowWorldRedirectorInPackage(WorldPackage);
+		}
+	}
+
+	if (!NewWorld)
+	{
+		// Here trying to match (WorldContext.WorldType == EWorldType::PIE ? LOAD_PackageForPIE : LOAD_None)
+		const ELoadFlags LoadFlags = WorldPackage && WorldPackage->HasAnyPackageFlags(PKG_PlayInEditor) ? LOAD_PackageForPIE : LOAD_None;
+		WorldPackage = LoadPackage(nullptr, *MapName, LoadFlags);
+
+		NewWorld = UWorld::FindWorldInPackage(WorldPackage);
+
+		if (!NewWorld)
+		{
+			NewWorld = UWorld::FollowWorldRedirectorInPackage(WorldPackage);
+		}
+	}
+
+	if (IsValid(NewWorld))
+	{
+		NewWorld->AddToRoot(); // Root Flag will be removed when the Map is unloaded
+	}
+}
+
 void UGFPakLoaderSubsystem::Start()
 {
 	if (!IsReady() || bStarted)
@@ -393,7 +433,9 @@ void UGFPakLoaderSubsystem::Start()
 			UE_LOG(LogGFPakLoader, Warning, TEXT("The default Pak folder location from the GF Pak Loader Settings does not exist: '%s'"), *Path)
 		}
 	}
-
+	
+	OnEnsureWorldIsLoadedInMemoryBeforeLoadingMapChanged();
+	
 	OnStartupPaksAddedDelegate.Broadcast();
 }
 
@@ -485,4 +527,19 @@ void UGFPakLoaderSubsystem::OnContentPathMounted(const FString& AssetPath, const
 void UGFPakLoaderSubsystem::OnContentPathDismounted(const FString& AssetPath, const FString& ContentPath)
 {
 	UE_LOG(LogGFPakLoader, Verbose, TEXT("OnContentPathDismounted:  '%s'  =>  '%s'"), *AssetPath, *ContentPath);
+}
+
+void UGFPakLoaderSubsystem::OnEnsureWorldIsLoadedInMemoryBeforeLoadingMapChanged()
+{
+	if (GetPakLoaderSettings()->bEnsureWorldIsLoadedInMemoryBeforeLoadingMap)
+	{
+		if (!FCoreUObjectDelegates::PreLoadMapWithContext.IsBoundToObject(this))
+		{
+			FCoreUObjectDelegates::PreLoadMapWithContext.AddUObject(this, &UGFPakLoaderSubsystem::PreLoadMapWithContext);
+		}
+	}
+	else
+	{
+		FCoreUObjectDelegates::PreLoadMapWithContext.RemoveAll(this);
+	}
 }
