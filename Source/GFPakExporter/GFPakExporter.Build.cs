@@ -37,6 +37,7 @@ public class GFPakExporter : ModuleRules
                 "AssetRegistry",
                 "ContentBrowser",
                 "ToolWidgets",
+                "OutputLog",
             }
         );
     }

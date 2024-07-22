@@ -2,6 +2,7 @@
 
 #include "SAuroraExportWizard.h"
 
+#include "GFPakExporterSubsystem.h"
 #include "IStructureDetailsView.h"
 #include "SPrimaryButton.h"
 #include "Interfaces/IMainFrameModule.h"
@@ -112,11 +113,15 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 					.OnClicked(this, &SAuroraExportWizard::HandleExportButtonClicked)
 					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [Settings = Settings]()
 					{
-						if (Settings)
+						if (GEditor && Settings)
 						{
-							if (auto ExporterSettings = Settings->Cast<FAuroraExporterSettings>())
+							UGFPakExporterSubsystem* Subsystem = GEditor->GetEditorSubsystem<UGFPakExporterSubsystem>();
+							if (Subsystem && !Subsystem->IsExporting())
 							{
-								return !ExporterSettings->Config.DLCName.IsEmpty();
+								if (FAuroraExporterSettings* ExporterSettings = Settings->Cast<FAuroraExporterSettings>())
+								{
+									return !ExporterSettings->Config.DLCName.IsEmpty();
+								}
 							}
 						}
 						return false;

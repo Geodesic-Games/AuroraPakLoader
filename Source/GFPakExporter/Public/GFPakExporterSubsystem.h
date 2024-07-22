@@ -9,6 +9,7 @@
 #include "ILauncherProfile.h"
 #include "GFPakExporterSubsystem.generated.h"
 
+struct FAuroraBuildTask;
 /**
  * 
  */
@@ -27,15 +28,12 @@ public:
 	}
 	void PromptForExport(const FAuroraExporterSettings& InSettings);
 	
-	ILauncherProfilePtr CreateLauncherProfileFromSettings(const FAuroraExporterSettings& InSettings);
-	ILauncherWorkerPtr LaunchProfile(const ILauncherProfilePtr& InProfile);
-private:
-	void MessageReceived(const FString& InMessage, ILauncherWorkerPtr Worker);
-	void HandleStageStarted(const FString& InStage, ILauncherWorkerPtr Worker);
-	void HandleStageCompleted(const FString& InStage, double StageTime, ILauncherWorkerPtr Worker);
-	void LaunchCompleted(bool Outcome, double ExecutionTime, int32 ReturnCode, ILauncherWorkerPtr Worker);
-	void LaunchCanceled(double ExecutionTime, ILauncherWorkerPtr Worker);
+	ILauncherProfilePtr CreateLauncherProfileFromSettings(const FAuroraExporterSettings& InSettings) const;
+	TSharedPtr<FAuroraBuildTask> LaunchProfile(const ILauncherProfilePtr& InProfile, const FAuroraExporterSettings& InSettings);
 
+	bool IsExporting() const;
+	
+private:
 	ILauncherPtr Launcher{};
-	ILauncherWorkerPtr LauncherWorker{};
+	TSharedPtr<FAuroraBuildTask> AuroraBuildTask{};
 };

@@ -125,6 +125,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	bool bCookUnversioned = false;
 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
+	bool bBuildUAT = false;
+
 	/** Location where the Config Json will be saved. Leave blank to save in the default location in the Intermediate folder */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, AdvancedDisplay, Category=Settings, meta = (FilePathFilter = "json"))
 	FFilePath ConfigFilePath;

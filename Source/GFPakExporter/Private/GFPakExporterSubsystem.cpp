@@ -3,6 +3,7 @@
 
 #include "GFPakExporterSubsystem.h"
 
+#include "AuroraBuildTask.h"
 #include "AuroraExporterConfig.h"
 #include "GFPakExporter.h"
 #include "GFPakExporterLog.h"
@@ -11,6 +12,7 @@
 #include "ITargetDeviceServicesModule.h"
 #include "Slate/SAuroraExportWizard.h"
 
+#define LOCTEXT_NAMESPACE "UGFPakExporterSubsystem"
 
 void UGFPakExporterSubsystem::PromptForExport(const FAuroraExporterSettings& InSettings)
 {
@@ -22,13 +24,13 @@ void UGFPakExporterSubsystem::PromptForExport(const FAuroraExporterSettings& InS
 			if (Settings)
 			{
 				ILauncherProfilePtr Profile = Subsystem->CreateLauncherProfileFromSettings(Settings.GetValue());
-				Subsystem->LaunchProfile(Profile);
+				Subsystem->LaunchProfile(Profile, Settings.GetValue());
 			}
 		}
 	}));
 }
 
-ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(const FAuroraExporterSettings& InSettings)
+ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(const FAuroraExporterSettings& InSettings) const
 {
 	UE_LOG(LogGFPakExporter, Display, TEXT("UGFPakExporterSubsystem::CreateLauncherProfileFromConfig"));
 	
@@ -46,14 +48,8 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 	}
 	UE_LOG(LogGFPakExporter, Display, TEXT("Saved the Exporter Config to '%s'"), *ConfigFilename);
 	
-	ILauncherServicesModule* LauncherServicesModule = FModuleManager::GetModulePtr<ILauncherServicesModule>(TEXT("LauncherServices"));
-	if (!LauncherServicesModule)
-	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Unable to get the 'LauncherServices' module"));
-		return nullptr;
-	}
-	
-	TSharedRef<ILauncherProfileManager> LauncherProfileManager = LauncherServicesModule->GetProfileManager();
+	ILauncherServicesModule& LauncherServicesModule = FModuleManager::LoadModuleChecked<ILauncherServicesModule>(TEXT("LauncherServices"));
+	TSharedRef<ILauncherProfileManager> LauncherProfileManager = LauncherServicesModule.GetProfileManager();
 	TArray<ITargetPlatform*> Platforms = GetTargetPlatformManager()->GetTargetPlatforms();
 	ITargetDeviceServicesModule& DeviceServiceModule = FModuleManager::LoadModuleChecked<ITargetDeviceServicesModule>(TEXT("TargetDeviceServices"));
 	TSharedRef<ITargetDeviceProxyManager> DeviceProxyManager = DeviceServiceModule.GetDeviceProxyManager();
@@ -62,6 +58,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 	Profile->SetDefaults();
 
 	Profile->SetProjectSpecified(true);
+	Profile->SetBuildUAT(InSettings.bBuildUAT);
 	// Build
 	Profile->SetBuildConfiguration(InSettings.GetBuildConfiguration());
 	// Cook
@@ -95,101 +92,30 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 	return Profile;
 }
 
-ILauncherWorkerPtr UGFPakExporterSubsystem::LaunchProfile(const ILauncherProfilePtr& InProfile)
+TSharedPtr<FAuroraBuildTask> UGFPakExporterSubsystem::LaunchProfile(const ILauncherProfilePtr& InProfile, const FAuroraExporterSettings& InSettings)
 {
-	UE_LOG(LogGFPakExporter, Verbose, TEXT("UGFPakExporterSubsystem::LaunchProfile"));
-	
-	if (!InProfile)
+	if (IsExporting())
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Launcher profile is null"));
+		UE_LOG(LogGFPakExporter, Error, TEXT("A Build Task is already processing, unable to start a new one."));
 		return nullptr;
 	}
 	
-	if (!InProfile->IsValidForLaunch())
-	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Launcher profile '%s' for is not valid for launch."),
-			*InProfile->GetName());
-		for (int32 i = 0; i < (int32)ELauncherProfileValidationErrors::Count; ++i)
-		{
-			ELauncherProfileValidationErrors::Type Error = (ELauncherProfileValidationErrors::Type)i;
-			if (InProfile->HasValidationError(Error))
-			{
-				UE_LOG(LogGFPakExporter, Error, TEXT("ValidationError: %s"), *LexToStringLocalized(Error));
-			}
-		}
-		return nullptr;
-	}
-	
-	if (LauncherWorker)
-	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("A Profile is already processing. Unable to start a new one."));
-		return nullptr;
-	}
-
-	ILauncherServicesModule* LauncherServicesModule = FModuleManager::GetModulePtr<ILauncherServicesModule>(TEXT("LauncherServices"));
-	if (!LauncherServicesModule)
-	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Unable to get the 'LauncherServices' module"));
-		return nullptr;
-	}
-	
-	// We are now ready, let's Launch
 	if (!Launcher)
 	{
-		Launcher = LauncherServicesModule->CreateLauncher();
+		ILauncherServicesModule& LauncherServicesModule = FModuleManager::LoadModuleChecked<ILauncherServicesModule>(TEXT("LauncherServices"));
+		Launcher = LauncherServicesModule.CreateLauncher();
 	}
-	
-	ITargetDeviceServicesModule& DeviceServiceModule = FModuleManager::LoadModuleChecked<ITargetDeviceServicesModule>(TEXT("TargetDeviceServices"));
-	TSharedRef<ITargetDeviceProxyManager> DeviceProxyManager = DeviceServiceModule.GetDeviceProxyManager();
-	
-	LauncherWorker = Launcher->Launch(DeviceProxyManager, InProfile.ToSharedRef());
-
-	// This will allow us to pipe the launcher messages into the command window.
-	LauncherWorker->OnOutputReceived().AddUObject(this, &UGFPakExporterSubsystem::MessageReceived, LauncherWorker);
-	// Allows us to exit this command once the launcher worker has completed or is canceled
-	LauncherWorker->OnStageStarted().AddUObject(this, &UGFPakExporterSubsystem::HandleStageStarted, LauncherWorker);
-	LauncherWorker->OnStageCompleted().AddUObject(this, &UGFPakExporterSubsystem::HandleStageCompleted, LauncherWorker);
-	LauncherWorker->OnCompleted().AddUObject(this, &UGFPakExporterSubsystem::LaunchCompleted, LauncherWorker);
-	LauncherWorker->OnCanceled().AddUObject(this, &UGFPakExporterSubsystem::LaunchCanceled, LauncherWorker);
-
-	TArray<ILauncherTaskPtr> TaskList;
-	int32 NumOfTasks = LauncherWorker->GetTasks(TaskList);	
-	UE_LOG(LogGFPakExporter, Display, TEXT("There are '%i' tasks to be completed."), NumOfTasks);
-
-	return LauncherWorker;
-}
-
-void UGFPakExporterSubsystem::MessageReceived(const FString& InMessage, ILauncherWorkerPtr Worker)
-{
-	GLog->Logf(ELogVerbosity::Log, TEXT("%s"), *InMessage);
-}
-
-void UGFPakExporterSubsystem::HandleStageStarted(const FString& InStage, ILauncherWorkerPtr Worker)
-{
-	UE_LOG(LogGFPakExporter, Warning, TEXT("Starting stage %s."), *InStage);
-}
-
-void UGFPakExporterSubsystem::HandleStageCompleted(const FString& InStage, double StageTime, ILauncherWorkerPtr Worker)
-{
-	UE_LOG(LogGFPakExporter, Warning, TEXT("Completed Stage %s."), *InStage);
-}
-
-void UGFPakExporterSubsystem::LaunchCompleted(bool Outcome, double ExecutionTime, int32 ReturnCode, ILauncherWorkerPtr Worker)
-{
-	UE_LOG(LogGFPakExporter, Log, TEXT("Profile launch command %s."), Outcome ? TEXT("is SUCCESSFUL") : TEXT("has FAILED"));
-
-	if (LauncherWorker == Worker)
+	AuroraBuildTask = MakeShared<FAuroraBuildTask>(InProfile, InSettings);
+	if (!AuroraBuildTask->Launch(Launcher))
 	{
-		LauncherWorker = nullptr;
+		return nullptr;
 	}
+	return AuroraBuildTask;
 }
 
-void UGFPakExporterSubsystem::LaunchCanceled(double ExecutionTime, ILauncherWorkerPtr Worker)
+bool UGFPakExporterSubsystem::IsExporting() const
 {
-	UE_LOG(LogGFPakExporter, Log, TEXT("Profile launch command was canceled."));
-
-	if (LauncherWorker == Worker)
-	{
-		LauncherWorker = nullptr;
-	}
+	return AuroraBuildTask && AuroraBuildTask->GetStatus() == ELauncherTaskStatus::Busy;
 }
+
+#undef LOCTEXT_NAMESPACE
