@@ -43,4 +43,7 @@ public:
 private:
     /** Holds our context menu handler */
     TSharedPtr<FGFPakExporterContentBrowserContextMenu> ContentBrowserContextMenu;
+
+    static void RegisterPropertyTypeCustomizations();
+    static void UnregisterPropertyTypeCustomizations();
 };

@@ -38,9 +38,9 @@ private:
 	 */
 	TArray<FSoftObjectPath> CreateTemporaryAssetRegistry();
 
-	/** The Aurora Config read for this cook */
-	FAuroraExporterConfig ExporterConfig;
-	/** The FOlder containing the Dummy Asset Registry. It is read from the commandline parameter
+	/** The Aurora Settings read for this cook */
+	FAuroraExporterSettings ExporterSettings;
+	/** The Folder containing the Dummy Asset Registry. It is read from the commandline parameter
 	 * -BasedOnReleaseVersionRoot and should normally be set to FGFPakExporterModule::GetTempAssetRegistryDir() */
 	FString AssetRegistryFolder;
 };

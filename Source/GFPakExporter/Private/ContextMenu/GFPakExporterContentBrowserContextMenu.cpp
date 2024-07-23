@@ -84,12 +84,10 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 	}
 	
 	FAuroraExporterConfig Config; //todo: a Config should be able to self assess if they contain DLC packs and if they are Plugin DLCs 
-	Algo::Transform(SelectedPackagePaths, Config.PackagePaths, [](const FString& Path){ return FName{Path}; });
+	Algo::Transform(SelectedPackagePaths, Config.PackagePaths, [](const FString& Path){ return FAuroraDirectoryPath{Path}; });
 	Config.Assets = SelectedAssets;
 	
-	FString PluginDLCName;
-	bool bIsPluginDLC = Config.IsPluginDLC(false, &PluginDLCName);
-	Config.DLCName = bIsPluginDLC ? PluginDLCName : TEXT("DLCPak");
+	Config.DLCName = Config.GetDefaultDLCNameBasedOnContent(TEXT("DLCPak"));
 	
 	if (Config.IsEmpty())
 	{
@@ -108,12 +106,10 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 	}
 	
 	{
-		const FText PluginOrContent = FText::FromString(bIsPluginDLC ? TEXT("Plugin") : TEXT("Content"));
-		
 		FToolMenuEntry& Menu = Section.AddMenuEntry(
 			TEXT("GFPakExporter_CreateDLC_MenuName"),
-			FText::Format(LOCTEXT("GFPakExporter_CreateDLC_MenuEntry", "Create a {0} DLC Pak"), PluginOrContent),
-			FText::Format(LOCTEXT("GFPakExporter_CreateContentDLC_MenuEntryTooltip", "Create a cooked DLC Pak of the selected {0}."),PluginOrContent),
+			LOCTEXT("GFPakExporter_CreateDLC_MenuEntry", "Create a Content DLC Pak"),
+			LOCTEXT("GFPakExporter_CreateContentDLC_MenuEntryTooltip", "Create a cooked DLC Pak of the selected Content."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
 			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction, Config),
 				FCanExecuteAction::CreateLambda([]() { return (bool)UGFPakExporterSubsystem::Get(); })

@@ -78,34 +78,29 @@ bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettings()
 
     // Firstly, we look for the AuroraDLC parameter and ensure it is valid
     {
-        FString AuroraDLCConfig;
-        if (!FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraCommandLineParameter + TEXT("=")), AuroraDLCConfig))
+        FString AuroraDLCSettingsPath;
+        if (!FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraCommandLineParameter + TEXT("=")), AuroraDLCSettingsPath))
         {
             UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No Aurora DLC Parameter '-%s=' found in the CommandLine"), *FGFPakExporterModule::AuroraCommandLineParameter)
             return false;
         }
-        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora DLC Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraCommandLineParameter, *AuroraDLCConfig)
+        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora DLC Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraCommandLineParameter, *AuroraDLCSettingsPath)
         
-        ExporterConfig = {};
-        if (FPaths::FileExists(AuroraDLCConfig))
+        ExporterSettings = {};
+        if (FPaths::FileExists(AuroraDLCSettingsPath))
         {
-            TOptional<FAuroraExporterConfig> Config = FAuroraExporterConfig::FromJsonConfig(AuroraDLCConfig);
+            TOptional<FAuroraExporterSettings> Config = FAuroraExporterSettings::FromJsonSettings(AuroraDLCSettingsPath);
             if (!Config)
             {
-                UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Unable to load the Aurora DLC Config file '%s'"), *AuroraDLCConfig)
+                UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Unable to load the Aurora DLC Config file '%s'"), *AuroraDLCSettingsPath)
                 return false;
             }
-            ExporterConfig = Config.GetValue();
+            ExporterSettings = Config.GetValue();
         }
         else
         {
-            TOptional<FAuroraExporterConfig> Config = FAuroraExporterConfig::FromPluginName(AuroraDLCConfig);
-            if (!Config)
-            {
-                UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("The Plugin Name passed to Aurora DLC is not a valid plugin name: '%s'"), *AuroraDLCConfig)
-                return false;
-            }
-            ExporterConfig = Config.GetValue();
+            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("The Settings File Path passed to Aurora DLC does not exist: '%s'"), *AuroraDLCSettingsPath)
+            return false;
         }
 
         // Read the Asset Registry Folder from the -BasedOnReleaseVersionRoot= param
@@ -202,7 +197,7 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
     UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Enumerate Assets..."))
     PluginAssetRegistry.EnumerateAllAssets({}, [this, &Assets](const FAssetData& AssetData)
     {
-        if (ExporterConfig.ShouldExportAsset(AssetData))
+        if (ExporterSettings.Config.ShouldExportAsset(AssetData))
         {
             UE_LOG(LogGFPakExporterCommandlet, Display, TEXT(" - ShouldExportAsset: '%s'"), *AssetData.GetObjectPathString())
             Assets.AddUnique(AssetData.GetSoftObjectPath());
@@ -210,7 +205,7 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
         return true;
     });
 
-    if (ExporterConfig.bIncludeHardReferences)
+    if (ExporterSettings.Config.bIncludeHardReferences)
     {
         TArray<FName> DependentPackageNames = FGFPakExporterModule::GetAssetDependencies(Assets);
         for (const FName& PackageName : DependentPackageNames)

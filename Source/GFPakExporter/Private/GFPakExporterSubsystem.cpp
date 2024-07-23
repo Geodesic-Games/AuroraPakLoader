@@ -40,8 +40,8 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 		return nullptr;
 	}
 	
-	FString ConfigFilename = InSettings.ConfigFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraExporterConfig.json")) : InSettings.ConfigFilePath.FilePath;
-	if (!InSettings.Config.SaveJsonConfig(ConfigFilename))
+	FString ConfigFilename = InSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraExporterConfig.json")) : InSettings.SettingsFilePath.FilePath;
+	if (!InSettings.SaveJsonSettings(ConfigFilename))
 	{
 		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraExporterConfig' to '%s'"), *ConfigFilename);
 		return nullptr;

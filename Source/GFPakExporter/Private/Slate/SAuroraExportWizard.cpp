@@ -120,7 +120,7 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 							{
 								if (FAuroraExporterSettings* ExporterSettings = Settings->Cast<FAuroraExporterSettings>())
 								{
-									return !ExporterSettings->Config.DLCName.IsEmpty();
+									return ExporterSettings->Config.IsValid();
 								}
 							}
 						}

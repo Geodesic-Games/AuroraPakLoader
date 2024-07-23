@@ -3,6 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "AuroraSaveFilePath.h"
 #include "AuroraExporterConfig.generated.h"
 
 /**
@@ -21,8 +22,8 @@ public:
 	 * List of Folders to include in this export (all their content and subfolders will also be included). They need to start with a MountPoint.
 	 * Ex: /Game/Folder/Maps  or /PluginName/Blueprints
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
-	TArray<FName> PackagePaths; //todo: allow packages to not export subfolders 
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true, ContentDir, LongPackageName))
+	TArray<FAuroraDirectoryPath> PackagePaths; //todo: allow packages to not export subfolders 
 	
 	/**
 	 * List of Assets to include in this export.
@@ -43,9 +44,10 @@ public:
 
 	bool IsValid() const
 	{
-		return !DLCName.IsEmpty() && !IsEmpty();
+		return HasValidDLCName() && !IsEmpty();
 	}
 
+	bool HasValidDLCName() const;
 	/**
 	 * Check if this config is a Plugin DLC config.
 	 * A Plugin DLC Config has no Assets and only one PackagePath which is the MountPoint of the Plugin Content.
@@ -53,21 +55,13 @@ public:
 	 * @param bEnsureDLCName if true, the DLCName property will also be checked, and it needs to match the MountPoint
 	 * @param OutPluginName if it is a PluginDLC, returns the name of the Plugin
 	 */
-	bool IsPluginDLC(bool bEnsureDLCName = true, FString* OutPluginName = nullptr) const;
+	// bool IsPluginDLC(bool bEnsureDLCName = true, FString* OutPluginName = nullptr) const;
 
 	/** Return true if the rules of this Exporter Config should export the given Asset */
 	bool ShouldExportAsset(const FAssetData& AssetData) const;
 	
-	bool LoadJsonConfig(const TSharedPtr<FJsonObject>& JsonObject);
-	bool LoadJsonConfig(const FString& InJsonPath);
-	bool SaveJsonConfig(const TSharedPtr<FJsonObject>& JsonObject) const;
-	bool SaveJsonConfig(const FString& InJsonPath) const;
-
-	static TOptional<FAuroraExporterConfig> FromJsonConfig(const FString& InJsonPath)
-	{
-		FAuroraExporterConfig Config;
-		return Config.LoadJsonConfig(InJsonPath) ? MoveTemp(Config) : TOptional<FAuroraExporterConfig>{};
-	}
+	FString GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const;
+	
 	static TOptional<FAuroraExporterConfig> FromPluginName(const FString& InPluginName);
 };
 
@@ -129,6 +123,17 @@ public:
 	bool bBuildUAT = false;
 
 	/** Location where the Config Json will be saved. Leave blank to save in the default location in the Intermediate folder */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, AdvancedDisplay, Category=Settings, meta = (FilePathFilter = "json"))
-	FFilePath ConfigFilePath;
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Transient, AdvancedDisplay, Category=Settings, meta = (FilePathFilter = "json"))
+	FAuroraSaveFilePath SettingsFilePath;
+
+	bool LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject);
+	bool LoadJsonSettings(const FString& InJsonPath);
+	bool SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const;
+	bool SaveJsonSettings(const FString& InJsonPath) const;
+
+	static TOptional<FAuroraExporterSettings> FromJsonSettings(const FString& InJsonPath)
+	{
+		FAuroraExporterSettings Settings;
+		return Settings.LoadJsonSettings(InJsonPath) ? MoveTemp(Settings) : TOptional<FAuroraExporterSettings>{};
+	}
 };

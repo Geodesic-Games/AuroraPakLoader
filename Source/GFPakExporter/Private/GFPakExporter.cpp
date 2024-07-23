@@ -2,8 +2,11 @@
 
 #include "GFPakExporter.h"
 
+#include "AuroraSaveFilePath.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "ContextMenu/GFPakExporterContentBrowserContextMenu.h"
+#include "DetailsViewCustomization/AuroraDirectoryPathStructCustomization.h"
+#include "DetailsViewCustomization/AuroraSaveFilePathStructCustomization.h"
 
 
 #define LOCTEXT_NAMESPACE "FGFPakExporterModule"
@@ -17,6 +20,9 @@ void FGFPakExporterModule::StartupModule()
 {
 	FDelayedAutoRegisterHelper(EDelayedRegisterRunPhase::EndOfEngineInit, [this]()
 	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		RegisterPropertyTypeCustomizations();
+		
 		// Create the asset menu instances
 		ContentBrowserContextMenu = MakeShared<FGFPakExporterContentBrowserContextMenu>();
 		ContentBrowserContextMenu->Initialize();
@@ -32,6 +38,7 @@ void FGFPakExporterModule::ShutdownModule()
 		ContentBrowserContextMenu->Shutdown();
 		ContentBrowserContextMenu.Reset();
 	}
+	UnregisterPropertyTypeCustomizations();
 }
 
 
@@ -98,6 +105,27 @@ TArray<FName> FGFPakExporterModule::GetAssetDependencies(const TArray<FName>& Pa
 	
 	// OutDependencies = ProcessedPackages.Array();
 	return ProcessedPackages.Array();
+}
+
+void FGFPakExporterModule::RegisterPropertyTypeCustomizations()
+{
+	static FName PropertyEditor("PropertyEditor");
+	FPropertyEditorModule& PropertyModule = FModuleManager::GetModuleChecked<FPropertyEditorModule>(PropertyEditor);
+	PropertyModule.RegisterCustomPropertyTypeLayout(FAuroraSaveFilePath::StaticStruct()->GetFName(), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FAuroraSaveFilePathStructCustomization::MakeInstance));
+	PropertyModule.RegisterCustomPropertyTypeLayout(FAuroraDirectoryPath::StaticStruct()->GetFName(), FOnGetPropertyTypeCustomizationInstance::CreateStatic(&FAuroraDirectoryPathStructCustomization::MakeInstance));
+	PropertyModule.NotifyCustomizationModuleChanged();
+}
+
+void FGFPakExporterModule::UnregisterPropertyTypeCustomizations()
+{
+	static FName PropertyEditor("PropertyEditor");
+	if (UObjectInitialized() && FModuleManager::Get().IsModuleLoaded(PropertyEditor))
+	{
+		FPropertyEditorModule& PropertyModule = FModuleManager::LoadModuleChecked<FPropertyEditorModule>("PropertyEditor");
+		PropertyModule.UnregisterCustomPropertyTypeLayout( FAuroraSaveFilePath::StaticStruct()->GetFName() );
+		PropertyModule.UnregisterCustomPropertyTypeLayout( FAuroraDirectoryPath::StaticStruct()->GetFName() );
+		PropertyModule.NotifyCustomizationModuleChanged();
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
