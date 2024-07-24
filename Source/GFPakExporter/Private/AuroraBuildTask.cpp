@@ -184,6 +184,15 @@ bool FAuroraBuildTask::Launch(const ILauncherPtr& Launcher)
 	return true;
 }
 
+void FAuroraBuildTask::Cancel()
+{
+	UE_LOG(LogGFPakExporter, Warning, TEXT("Cancelling"));
+	if (LauncherWorker && Status == ELauncherWorkerStatus::Busy)
+	{
+		LauncherWorker->Cancel();
+	}
+}
+
 void FAuroraBuildTask::MessageReceived(const FString& InMessage)
 {
 	GLog->Logf(ELogVerbosity::Log, TEXT("%s"), *InMessage);

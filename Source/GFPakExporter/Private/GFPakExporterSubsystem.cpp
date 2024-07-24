@@ -10,9 +10,33 @@
 #include "ILauncherProfileManager.h"
 #include "ILauncherServicesModule.h"
 #include "ITargetDeviceServicesModule.h"
+#include "Interfaces/IMainFrameModule.h"
 #include "Slate/SAuroraExportWizard.h"
 
 #define LOCTEXT_NAMESPACE "UGFPakExporterSubsystem"
+
+void UGFPakExporterSubsystem::Initialize(FSubsystemCollectionBase& Collection)
+{
+	Super::Initialize(Collection);
+	
+	// In editor, an asset re-save dialog can prevent AJA from cleaning up in the regular PreExit callback,
+	// So we have to do our cleanup before the regular callback is called.
+	IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
+	CanCloseEditorDelegate = MainFrame.RegisterCanCloseEditor(IMainFrameModule::FMainFrameCanCloseEditor::CreateUObject(this, &UGFPakExporterSubsystem::CanCloseEditor));
+}
+
+void UGFPakExporterSubsystem::Deinitialize()
+{
+	if (IsExporting())
+	{
+		AuroraBuildTask->Cancel();
+	}
+	if (IMainFrameModule* MainFrame = FModuleManager::GetModulePtr<IMainFrameModule>("MainFrame"))
+	{
+		MainFrame->UnregisterCanCloseEditor(CanCloseEditorDelegate);
+	}
+	Super::Deinitialize();
+}
 
 void UGFPakExporterSubsystem::PromptForExport(const FAuroraExporterSettings& InSettings)
 {
@@ -116,6 +140,22 @@ TSharedPtr<FAuroraBuildTask> UGFPakExporterSubsystem::LaunchProfile(const ILaunc
 bool UGFPakExporterSubsystem::IsExporting() const
 {
 	return AuroraBuildTask && AuroraBuildTask->GetStatus() == ELauncherTaskStatus::Busy;
+}
+
+bool UGFPakExporterSubsystem::CanCloseEditor() const
+{
+	if (IsExporting())
+	{
+		FString DLCName = AuroraBuildTask ? AuroraBuildTask->GetProfile()->GetDLCName() : FString{};
+		const EAppReturnType::Type DlgResult = FMessageDialog::Open(EAppMsgType::YesNo,
+			FText::Format(LOCTEXT("ClosingEditorWhileExporting_Text", "Aurora is currently exporting the DLC '{0}'.\nDo you really want to quit and cancel the export?"), FText::FromString(DLCName)),
+			LOCTEXT("ClosingEditorWhileExporting_Title", "Aurora | Cancel Export?")
+		);
+		return DlgResult == EAppReturnType::Yes;
+	}
+
+	// We won't actually ever block the save
+	return true;
 }
 
 #undef LOCTEXT_NAMESPACE

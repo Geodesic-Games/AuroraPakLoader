@@ -16,7 +16,11 @@ public:
 		: Profile(InProfile), Settings(InSettings) {}
 
 	bool Launch(const ILauncherPtr& Launcher);
+	void Cancel();
+	
 	ELauncherTaskStatus::Type GetStatus() const { return Status; };
+	ILauncherProfilePtr GetProfile() const { return Profile; }
+	ILauncherWorkerPtr GetLauncherWorker() const { return LauncherWorker; }
 private:
 	ILauncherProfilePtr Profile{};
 	FAuroraExporterSettings Settings;

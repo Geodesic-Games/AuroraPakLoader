@@ -7,6 +7,7 @@
 #include "EditorSubsystem.h"
 #include "ILauncher.h"
 #include "ILauncherProfile.h"
+#include "Interfaces/IMainFrameModule.h"
 #include "GFPakExporterSubsystem.generated.h"
 
 struct FAuroraBuildTask;
@@ -18,6 +19,9 @@ class GFPAKEXPORTER_API UGFPakExporterSubsystem : public UEditorSubsystem
 {
 	GENERATED_BODY()
 public:
+	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
+	virtual void Deinitialize() override;
+	
 	static UGFPakExporterSubsystem* Get() { return GEditor ? GEditor->GetEditorSubsystem<UGFPakExporterSubsystem>() : nullptr; }
 
 	// DECLARE_DYNAMIC_DELEGATE_OneParam(FOnExportWizardCompleted, TOptional<FAuroraExporterSettings>, Settings)
@@ -32,8 +36,9 @@ public:
 	TSharedPtr<FAuroraBuildTask> LaunchProfile(const ILauncherProfilePtr& InProfile, const FAuroraExporterSettings& InSettings);
 
 	bool IsExporting() const;
-	
+	bool CanCloseEditor() const;
 private:
 	ILauncherPtr Launcher{};
 	TSharedPtr<FAuroraBuildTask> AuroraBuildTask{};
+	FDelegateHandle CanCloseEditorDelegate;
 };
