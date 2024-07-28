@@ -90,7 +90,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 	Profile->SetCookMode(ELauncherProfileCookModes::ByTheBook);
 	Profile->AddCookedPlatform(TEXT("Windows")); // todo: How to derive this?
 	// Cook - Release DLC
-	Profile->SetBasedOnReleaseVersionName(TEXT("AuroraDummyReleaseVersion"));
+	Profile->SetBasedOnReleaseVersionName(TEXT("AuroraDummyReleaseVersion")); // We need to give a BaseRelease version, but it will be ignored
 	Profile->SetCreateDLC(true);
 	Profile->SetDLCName(InSettings.Config.DLCName);
 	Profile->SetDLCIncludeEngineContent(true);
@@ -102,7 +102,6 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateLauncherProfileFromSettings(c
 
 	FString AssetRegistryFolder = FGFPakExporterModule::GetTempAssetRegistryDir();
 	FString CookOptions = FString::Printf(TEXT("-%s=\"%s\""), *FGFPakExporterModule::AuroraCommandLineParameter, *ConfigFilename);
-	CookOptions += TEXT(" -BasedOnReleaseVersion=\"AuroraDummyReleaseVersion\""); // Not needed, will be ignored
 	CookOptions += FString::Printf(TEXT(" -BasedOnReleaseVersionRoot=\"%s\""), *AssetRegistryFolder); // Folder containing our custom Asset Registry
 	CookOptions += TEXT(" -DevelopmentAssetRegistryPlatformOverride=..\\"); // Need to be the parent folder to disregard the BasedOnReleaseVersion
 	CookOptions += TEXT(" -CookSkipRequests -CookSkipSoftRefs -CookSkipHardRefs -DisableUnsolicitedPackages -NoGameAlwaysCookPackages -SkipZenStore");

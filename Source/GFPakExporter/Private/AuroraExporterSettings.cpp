@@ -116,7 +116,7 @@ FString FAuroraExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& Fa
 	{
 		return FallbackName;
 	}
-	return StartPath.Last();
+	return StartPath.IsEmpty() ? FallbackName : StartPath.Last();
 }
 
 TOptional<FAuroraExporterConfig> FAuroraExporterConfig::FromPluginName(const FString& InPluginName)
