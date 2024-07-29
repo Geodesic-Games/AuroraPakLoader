@@ -31,6 +31,7 @@ enum class EGFPakLoaderStatus : uint8
 
 struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 {
+#if WITH_EDITOR // Only used for debugging
 	// The original mount point. ex: "../../../DLCTestProject/" or "../../../"
 	FString OriginalMountPoint;
 	// The adjusted mount point. ex: "/../../../DLCTestProject/" or "/../../../"
@@ -39,6 +40,7 @@ struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 	FString OriginalFilename;
 	// The combined original OriginalMountPoint and filename. ex: "../../../DLCTestProject/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
 	FString OriginalFullFilename;
+#endif
 	/**
 	 * This is the path that will be used to find the file with the PakPlatformFile.
 	 * It is the combined original AdjustedMountPoint and filename. ex: "/../../../DLCTestProject/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"

@@ -25,10 +25,7 @@ private:
 	/** Helper to return the list of selected assets and folders */
 	static void GetSelectedFilesAndFolders(const UToolMenu* InMenu, TArray<FString>& OutSelectedPackagePaths, TArray<FSoftObjectPath>& OutSelectedAssets);
 
-	/** Export a list of assets locally as a storm sync archive file */
-	static void ExecuteCreateAuroraPluginDLCAction(FString InPluginName); //todo: move to subsystem and remove duplicate code
-
-	static void ExecuteCreateAuroraContentDLCAction(FAuroraExporterConfig InConfig); //todo: move to subsystem and remove duplicate code
+	static void ExecuteCreateAuroraContentDLCAction(FAuroraExporterConfig InConfig);
 
 	/**
 	 * Return a the list of selected plugins out of the given Package and Asset Paths

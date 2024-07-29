@@ -45,23 +45,25 @@
 FGFPakFilenameMap FGFPakFilenameMap::FromFilenameAndMountPoints(const FString& OriginalMountPoint, const FString& AdjustedMountPoint, const FString& OriginalFilename)
 {
 	FGFPakFilenameMap PakFilename;
+#if WITH_EDITOR
 	PakFilename.OriginalMountPoint = OriginalMountPoint;
-	PakFilename.OriginalFilename = OriginalFilename; //FPaths::GetBaseFilename(OriginalFilename, false);
+	PakFilename.OriginalFilename = OriginalFilename;
 	PakFilename.AdjustedMountPoint = AdjustedMountPoint;
 	
-	PakFilename.OriginalFullFilename = OriginalMountPoint + PakFilename.OriginalFilename;
-	PakFilename.AdjustedFullFilename = AdjustedMountPoint + PakFilename.OriginalFilename;
+	PakFilename.OriginalFullFilename = OriginalMountPoint + OriginalFilename;
+#endif
+	PakFilename.AdjustedFullFilename = AdjustedMountPoint + OriginalFilename;
 	
-	PakFilename.ProjectAdjustedFullFilename = PakFilename.OriginalFullFilename;
+	PakFilename.ProjectAdjustedFullFilename = OriginalMountPoint + OriginalFilename;
 	// Default Mount Point is "../../../<DLCProjectOrEngine>/Content/<folder>/filename.uasset" or "../../../<DLCProject>/Plugins[/GameFeatures]/<folder>/filename.uasset", and we want to make sure the "<DLCProject>" is matching the current project to find the current Mount Path
 	// So for example, if the DLC was packaged from the project "DLCProject", the path would be "../../../DLCProject/Content/<folder>/filename.uasset", but we want a path adjusted to the current project "../../../CurrentProject/Content/<folder>/filename.uasset"
-	//todo: test with Engine content
+	//todo: test with Engine content + Engine on another disk
 	if (ensure(PakFilename.ProjectAdjustedFullFilename.RemoveFromStart(TEXT("../../../")))) 
 	{
 		// here, the filename should be "<DLCProjectOrEngine>/Content/<folder>/filename.uasset"
 		FString DLCProjectName;
 		FString PathAfterProject;
-		if (PakFilename.ProjectAdjustedFullFilename.Split(TEXT("/"), &DLCProjectName, &PathAfterProject) && DLCProjectName != TEXT("Engine")) //todo: test with DLC engine/editor content
+		if (PakFilename.ProjectAdjustedFullFilename.Split(TEXT("/"), &DLCProjectName, &PathAfterProject) && DLCProjectName != TEXT("Engine"))
 		{
 			// here, the ProjectName should be "<DLCProject>" and PathAfterProject should be "Content/<folder>/filename.uasset" or "Plugins[/GameFeatures]/Content/<folder>/filename.uasset"
 			FString FullProjectDir = FPlatformMisc::ProjectDir(); // ex: "D:/<folder>/CurrentProject/" if in other drive, otherwise "../../../../../../<folder>/CurrentProject/" for example
@@ -605,25 +607,22 @@ bool UGFPakPlugin::Mount_Internal()
 	
 	// 4d. As we have the asset registry, we can start loading the assets inside the Asset Registry.
 	{
-		IFileHandle* FileHandle = nullptr;
 		{
 			// The plugin needs to be temporary set as Mounted so UGFPakLoaderSubsystem::FindMountedPakContainingFile actually find the assets
-			TGuardValue GuardedStatus(Status, EGFPakLoaderStatus::Mounted); 
+			TGuardValue GuardedStatus(Status, EGFPakLoaderStatus::Mounted); //todo: create a "Mounting" state
 			
 			FPakGenerateFilenameMap MountedPakFilenames{OriginalMountPoint, MountPoint};
 			MountedPakFile->PakVisitPrunedFilenames(MountedPakFilenames);
-			PakFilenamesMap = MoveTemp(MountedPakFilenames.PakFilenamesMap);
+			PakFilenamesMap = MoveTemp(MountedPakFilenames.PakFilenamesMap); //todo: try to combine with UGFPakLoaderSubsystem::AssetOwners, seems duplicated
 			
-			FileHandle = PakPlatformFile->OpenRead(*AssetRegistryPath);
+			FAssetRegistryState PluginAssetRegistryState;
+			if (FAssetRegistryState::LoadFromDisk(*AssetRegistryPath, FAssetRegistryLoadOptions(), PluginAssetRegistryState))
+			{
+				PluginAssetRegistry = {MoveTemp(PluginAssetRegistryState)};
+			}
 		}
-		if (FileHandle)
+		if (PluginAssetRegistry.IsSet())
 		{
-			FArchiveFileReaderGeneric FileReader {FileHandle, *AssetRegistryPath, FileHandle->Size()};
-		
-			FAssetRegistryVersion::Type Version;
-			FAssetRegistryLoadOptions Options(UE::AssetRegistry::ESerializationTarget::ForDevelopment);
-			PluginAssetRegistry = FAssetRegistryState{};
-			PluginAssetRegistry->Load(FileReader, Options, &Version);
 			UE_LOG(LogGFPakLoader, Verbose, TEXT("  AssetRegistry Loaded from '%s': %d Assets in %d Packages"), *AssetRegistryPath, PluginAssetRegistry->GetNumAssets(), PluginAssetRegistry->GetNumPackages());
 			
 			// We make sure the newly added packages were not marked as empty. This can happen when the assets are deleted via FAssetRegistryModule::AssetDeleted
@@ -633,10 +632,15 @@ bool UGFPakPlugin::Mount_Internal()
 				PackageNames.Add(AssetData.PackageName);
 			});
 			AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove::Remove, PackageNames);
-
+			
+			PakLoaderSubsystem->OnPreAddPluginAssetRegistry(PluginAssetRegistry.GetValue(), this);
+			
 			// Then we add them to the AssetRegistry
 			IAssetRegistry& AssetRegistry = UAssetManager::Get().GetAssetRegistry();
 			AssetRegistry.AppendState(*PluginAssetRegistry);
+			// Note: in Cooked Packages, Blueprints have 2 assets within the same package: the Blueprint itself and the BlueprintGeneratedClass '_C'.
+			// UE does not support having both in some functions like AssetRegistry.GetAssetsByPackageName, so the default filtering (for cooked packages) will
+			// filter out the BP and keep the class as per UE::AssetRegistry::Utils::ShouldSkipAsset
 		}
 		else
 		{
@@ -1078,7 +1082,7 @@ bool UGFPakPlugin::Unmount_Internal()
 		if (WeakThis.IsValid())
 		{
 			if (WeakThis->Status >= EGFPakLoaderStatus::Unmounted) // when we are trying to destroy the UGFPakPlugin, we might be already having a `NotInitialized` status for example, and we don't want to replace it
-			{
+			{ // todo: this ends up happening before PakPluginMountPoints.Empty(); below
 				WeakThis->BroadcastOnStatusChange(EGFPakLoaderStatus::Unmounted); // what should happen in case of error? Currently setting back to Mounted to be able to move forward
 			}
 		}
@@ -1873,96 +1877,16 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 
 	UE_LOG(LogGFPakLoader, Log, TEXT("Removing Assets from the Asset Registry"))
 	FlushAsyncLoading(); // to be sure we don't have assets to be deleted that are pending load
-
-	TSet<FName> PackagePathsToRemove;
+	
 	TSet<FName> PackageNamesToRemove;
-	PluginAssetRegistry->EnumerateAllAssets([AssetRegistry, &PackagePathsToRemove, &PackageNamesToRemove](const FAssetData& AssetData)
+	if (UGFPakLoaderSubsystem* Subsystem = UGFPakLoaderSubsystem::Get())
 	{
-		UE_CLOG(AssetData.AssetClassPath == UWorld::StaticClass()->GetClassPathName(), LogGFPakLoader, Verbose, TEXT("Removing MAP Asset from Asset Registry: '%s'"), *AssetData.GetObjectPathString())
-		UE_CLOG(AssetData.AssetClassPath != UWorld::StaticClass()->GetClassPathName(), LogGFPakLoader, VeryVerbose, TEXT("   Removing Asset from Asset Registry: '%s'"), *AssetData.GetObjectPathString())
-		PackagePathsToRemove.Add(AssetData.PackagePath);
-		
-		UPackage* DeletedObjectPackage = AssetData.PackageName.IsNone() ? nullptr : FindPackage(nullptr, *AssetData.PackageName.ToString()); // do not force load the package
-		UObject* AssetToDelete = AssetData.FastGetAsset();
-		const bool bIsEmptyPackage = !IsValid(DeletedObjectPackage) || UPackage::IsEmptyPackage(DeletedObjectPackage, AssetToDelete);
-
-		// The below is the Runtime and Editor equivalent of ObjectTools::DeleteSingleObject(AssetToDelete, false) which is editor only
-
-		if (AssetToDelete)
+		if (PluginAssetRegistry.IsSet())
 		{
-#if WITH_EDITOR
-			if (GEditor)
-			{
-				if (GEditor->GetSelectedObjects())
-				{
-					GEditor->GetSelectedObjects()->Deselect(AssetToDelete);
-				}
-				if (AssetToDelete->IsAsset())
-				{
-					if (UAssetEditorSubsystem* AssetEditor = GEditor->GetEditorSubsystem<UAssetEditorSubsystem>())
-					{
-						AssetEditor->CloseAllEditorsForAsset(AssetToDelete);
-					}
-				}
-			}
-#endif
-
-			ForEachObjectWithOuter(AssetToDelete, [](UObject* Object)
-			{
-				Object->RemoveFromRoot();
-				Object->ClearFlags(RF_Standalone);
-			}, true);
-			if (UWorld* World = Cast<UWorld>(AssetToDelete))
-			{
-				World->CleanupWorld();
-			}
+			Subsystem->OnPreRemovePluginAssetRegistry(PluginAssetRegistry.GetValue(), this, PackageNamesToRemove);
 		}
-		
-		if (bIsEmptyPackage)
-		{
-			PackageNamesToRemove.Add(AssetData.PackageName);
-			if (DeletedObjectPackage)
-			{
-				ForEachObjectWithOuter(DeletedObjectPackage, [](UObject* Object)
-				{
-					Object->RemoveFromRoot();
-					Object->ClearFlags(RF_Standalone);
-				}, true);
-			}
-		}
-		
-		if (AssetToDelete)
-		{
-			AssetToDelete->MarkPackageDirty();
-
-			// Equivalent of FAssetRegistryModule::AssetDeleted( AssetToDelete ) which is Editor only
-			{
-				// We might need to find a way to add the package to the EmptyPackageCache as per FAssetRegistryModule::AssetDeleted, but it works without
-
-				// Let subscribers know that the asset was removed from the registry
-				AssetRegistry->OnAssetRemoved().Broadcast(AssetData);
-				AssetRegistry->OnAssetsRemoved().Broadcast({AssetData});
-
-				// Notify listeners that an in-memory asset was just deleted
-				AssetRegistry->OnInMemoryAssetDeleted().Broadcast(AssetToDelete);
-			}
-			// Remove standalone flag so garbage collection can delete the object and public flag so that the object is no longer considered to be an asset
-			AssetToDelete->ClearFlags(RF_Standalone | RF_Public);
-		}
-		else
-		{
-			AssetRegistry->OnAssetRemoved().Broadcast(AssetData);
-			AssetRegistry->OnAssetsRemoved().Broadcast({AssetData});
-		}
-
-#if WITH_EDITOR
-		if (bIsEmptyPackage && DeletedObjectPackage)
-		{
-			AssetRegistry->PackageDeleted(DeletedObjectPackage);
-		}
-#endif
-	});
-
+	}
+	
 	AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove::Add, PackageNamesToRemove);
 	
 	CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
@@ -1972,7 +1896,7 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 		TSet<FString> FilenamesToRemove;
 		for (const TTuple<FName, TSharedPtr<const FGFPakFilenameMap>>& Entry : PakFilenamesMap)
 		{
-			if (Entry.Value && !Entry.Value->MountedPackageName.IsNone())
+			if (Entry.Value && !Entry.Value->MountedPackageName.IsNone() && PackageNamesToRemove.Contains(Entry.Value->MountedPackageName))
 			{
 				FilenamesToRemove.Add(Entry.Value->ProjectAdjustedFullFilename);
 			}
@@ -1981,11 +1905,12 @@ void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()
 		AssetRegistry->ScanModifiedAssetFiles(Filenames);
 	}
 	// ScanModifiedAssetFiles might remove assets from the cache data, so we need to remove paths after
-	for (FName& PackagePath : PackagePathsToRemove)
+	for (FName& PackageName : PackageNamesToRemove)
 	{
-		const bool bResult = AssetRegistry->RemovePath(PackagePath.ToString());
-		UE_CLOG(bResult, LogGFPakLoader, Verbose, TEXT(" - Removed the Path '%s'"), *PackagePath.ToString())
-		UE_CLOG(!bResult, LogGFPakLoader, Verbose, TEXT(" - ! Unable to remove the Path '%s' !"), *PackagePath.ToString())
+		FString PackagePath = FPaths::GetPath(PackageName.ToString());
+		const bool bResult = AssetRegistry->RemovePath(PackagePath);
+		UE_CLOG(bResult, LogGFPakLoader, Verbose, TEXT(" - Removed the Path '%s'"), *PackagePath)
+		UE_CLOG(!bResult, LogGFPakLoader, Verbose, TEXT(" - ! Unable to remove the Path '%s' !"), *PackagePath)
 	}
 }
 

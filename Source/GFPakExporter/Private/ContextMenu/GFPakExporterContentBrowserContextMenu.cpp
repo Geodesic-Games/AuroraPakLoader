@@ -83,7 +83,7 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 		UE_LOG(LogGFPakExporter, Verbose, TEXT("\t- %s"), *SelectedAsset.ToString());
 	}
 	
-	FAuroraExporterConfig Config; //todo: a Config should be able to self assess if they contain DLC packs and if they are Plugin DLCs 
+	FAuroraExporterConfig Config;
 	Algo::Transform(SelectedPackagePaths, Config.PackagePaths, [](const FString& Path){ return FAuroraDirectoryPath{Path}; });
 	Config.Assets = SelectedAssets;
 	
