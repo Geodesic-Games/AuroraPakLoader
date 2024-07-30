@@ -91,7 +91,7 @@ bool FPakGenerateFilenameMap::Visit(const TCHAR* FilenameOrDirectory, bool bIsDi
 		}
 		
 		UE_CLOG(PakFilename.AdjustedFullFilename.EndsWith(TEXT(".umap")), LogGFPakLoader, Verbose, TEXT("FGFPakFilenameMap::FromFilenameAndMountPoints UMAP '%s %s' => '%s' (Mounted to '%s' => '%s')"),
-			*OriginalMountPoint, *PakFilename.OriginalFilename, *PakFilename.ProjectAdjustedFullFilename,
+			*OriginalMountPoint, FilenameOrDirectory, *PakFilename.ProjectAdjustedFullFilename,
 			*PakFilename.MountedPackageName.ToString(), *PakFilename.LocalBaseFilename.ToString());
 	}
 		

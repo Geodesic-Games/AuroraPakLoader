@@ -266,6 +266,7 @@ private:
 	
 	void OnAssetManagerCreated();
 	void OnEngineLoopInitCompleted();
+	void PreLoadMapWithContext(const FWorldContext& WorldContext, const FString& MapName);
 	void Start();
 
 	mutable FRWLock GameFeaturesPakPluginsLock;
@@ -302,19 +303,39 @@ private:
 	 * See UGFPakLoaderSubsystem::Initialize for more details
 	 */
 	void RegisterMountPoint(const FString& RootPath, const FString& ContentPath);
-
-	TMap<FString, FString> PathToPluginPath;
-	// only used to not debug print
+	
+	// only used to not spam the log with repeating errors
 	TSet<FString> IgnoredPluginPaths;
+	TSet<FString> InvalidDirectories;
+
+	
+	FCriticalSection AssetOwnerMutex;
+	struct FAssetOwner
+	{
+		bool bIsBaseGameAsset = false;
+		FAssetData BaseGameAssetData;
+		TArray<UGFPakPlugin*> PluginOwners; // Not yet really needed, but will be useful once we tackle which Pak Plugin has priority
+	};
+	// Keep track of assets added by the DLC Paks and previously existing assets
+	TMap<FSoftObjectPath, FAssetOwner> AssetOwners;
+	
+	friend UGFPakPlugin;
+	/** Function to ensure the Pak assets added to the asset registry are recorded as we might be "overriding" some existing ones */
+	void OnPreAddPluginAssetRegistry(const FAssetRegistryState& PluginAssetRegistry, UGFPakPlugin* Plugin);
+	/** Function to remove the Pak assets from the asset registry while keeping the existing ones */
+	void OnPreRemovePluginAssetRegistry(const FAssetRegistryState& PluginAssetRegistry, UGFPakPlugin* Plugin, TSet<FName>& OutPackageNamesToRemove);
 
 public: // Debug Functions
-	/**
-	 * Print in the log the value of the Platform Paths, as they might differ on different configs and platforms
-	 */
+	/** Print in the log the value of the Platform Paths, as they might differ on different configs and platforms */
 	static void Debug_LogPaths();
 
 	UFUNCTION()
 	void OnContentPathMounted(const FString& AssetPath, const FString& ContentPath);
 	UFUNCTION()
 	void OnContentPathDismounted(const FString& AssetPath, const FString& ContentPath);
+	
+	void OnEnsureWorldIsLoadedInMemoryBeforeLoadingMapChanged();
+
+	/** Helper function to return a string describing the PackageFlags */
+	static FString PackageFlagsToString(uint32 PackageFlags);
 };

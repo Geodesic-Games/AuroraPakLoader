@@ -11,7 +11,7 @@ DEFINE_LOG_CATEGORY(LogGFPakLoaderEditor);
 
 #define LOCTEXT_NAMESPACE "FGFPakLoaderEditorModule"
 
-const FString FGFPakLoaderEditorModule::GFPakLoaderVirtualPathPrefix{TEXT("/PakPlugins")}; 
+const FString FGFPakLoaderEditorModule::GFPakLoaderVirtualPathPrefix{TEXT("/DLC Paks")}; 
 
 void FGFPakLoaderEditorModule::StartupModule()
 {

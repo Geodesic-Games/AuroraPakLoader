@@ -31,6 +31,7 @@ enum class EGFPakLoaderStatus : uint8
 
 struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 {
+#if WITH_EDITOR // Only used for debugging
 	// The original mount point. ex: "../../../DLCTestProject/" or "../../../"
 	FString OriginalMountPoint;
 	// The adjusted mount point. ex: "/../../../DLCTestProject/" or "/../../../"
@@ -39,6 +40,7 @@ struct FGFPakFilenameMap : TSharedFromThis<FGFPakFilenameMap>
 	FString OriginalFilename;
 	// The combined original OriginalMountPoint and filename. ex: "../../../DLCTestProject/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
 	FString OriginalFullFilename;
+#endif
 	/**
 	 * This is the path that will be used to find the file with the PakPlatformFile.
 	 * It is the combined original AdjustedMountPoint and filename. ex: "/../../../DLCTestProject/Content/DLCTestProjectContent/BP_DLCTestProject.uasset"
@@ -291,7 +293,12 @@ public:
 	 * Only Valid if Status is >= `Mounted`
 	 */
 	const FAssetRegistryState* GetPluginAssetRegistry() const { return Status >= EGFPakLoaderStatus::Mounted ? PluginAssetRegistry.GetPtrOrNull() : nullptr; }
-
+	/**
+		 * Returns the PluginAsset Registry
+		 * Only Valid if Status is >= `Mounted`
+		 */
+	const TSharedPtr<IPlugin>& GetPluginInterface() const { return PluginInterface; }
+	
 	/**
 	 * Returns the FAssetData pointing to the UGameFeatureData of this GFPakPlugin.
 	 * Only Valid if Status is >= `Mounted` and if the plugin is a GameFeatures plugin.

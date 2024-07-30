@@ -58,6 +58,16 @@ public:
 	 */
 	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader", meta = (DisplayPriority=5), AdvancedDisplay)
 	bool bRequireUPluginPaks = true;
+
+	/**
+	 * Not directly a Pak Loader issue but allows a more consistent outcome when Loading Levels.
+	 * There are some possible edge case scenarios not handled in UEngine::LoadMap which will fail the loading of a World,
+	 * like when a UWorld has already been GCed but its UPackage is still alive.
+	 * Setting this to true will force the World to be loaded first which will allow UEngine::LoadMap to find it.
+	 * Will not work if we are trying to reload the same Map, as the Map will be GCed after we loaded it. Potential workaround in WorldContext.OwningGameInstance->PreloadContentForURL(URL).
+	 */
+	UPROPERTY(config, EditAnywhere, Category = "GF Pak Loader", meta = (DisplayPriority=6), AdvancedDisplay)
+	bool bEnsureWorldIsLoadedInMemoryBeforeLoadingMap = true;
 private:
 	/**
 	 * The Path to the Pak Plugin Directory to load at startup. Relative to the project directory if inside of it, otherwise this is a relative path.
