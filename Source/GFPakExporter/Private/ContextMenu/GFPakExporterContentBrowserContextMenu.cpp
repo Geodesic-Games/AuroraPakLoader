@@ -2,7 +2,7 @@
 
 #include "GFPakExporterContentBrowserContextMenu.h"
 
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 #include "ContentBrowserAssetDataCore.h"
 #include "ContentBrowserAssetDataPayload.h"
 #include "ContentBrowserDataMenuContexts.h"

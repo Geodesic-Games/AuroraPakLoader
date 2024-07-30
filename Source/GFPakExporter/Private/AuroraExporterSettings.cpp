@@ -1,7 +1,7 @@
 ﻿// Copyright GeoTech BV
 
 
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 
 #include "GFPakExporterLog.h"
 #include "JsonObjectConverter.h"
@@ -35,6 +35,7 @@ bool FAuroraExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
 
 FString FAuroraExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const
 {
+	// Here we are trying the get the common path between all the assets, and return the name of the common folder containing all these assets
 	TArray<FString> StartPath;
 	bool bStartPathSet = false;
 

@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 #include "ILauncher.h"
 #include "ILauncherWorker.h"
 

@@ -4,7 +4,7 @@
 #include "GFPakExporterSubsystem.h"
 
 #include "AuroraBuildTask.h"
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 #include "GFPakExporter.h"
 #include "GFPakExporterLog.h"
 #include "ILauncherProfileManager.h"
@@ -152,8 +152,7 @@ bool UGFPakExporterSubsystem::CanCloseEditor() const
 		);
 		return DlgResult == EAppReturnType::Yes;
 	}
-
-	// We won't actually ever block the save
+	
 	return true;
 }
 

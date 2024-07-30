@@ -3,11 +3,10 @@
 #pragma once
 
 #include "CoreMinimal.h"
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 #include "EditorSubsystem.h"
 #include "ILauncher.h"
 #include "ILauncherProfile.h"
-#include "Interfaces/IMainFrameModule.h"
 #include "GFPakExporterSubsystem.generated.h"
 
 struct FAuroraBuildTask;

@@ -51,15 +51,8 @@ TArray<FName> FGFPakExporterModule::GetAssetDependencies(const TArray<FSoftObjec
 }
 TArray<FName> FGFPakExporterModule::GetAssetDependencies(const TArray<FName>& PackageNames)
 {
-	// TArray<FName> OutDependencies;
-	
 	const FAssetRegistryModule& AssetRegistryModule = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry");
 	IAssetRegistry& AssetRegistry = AssetRegistryModule.Get();
-	
-	// TSet<FName> AllDependencyNamesSet;
-	// TMap<UE::AssetRegistry::EDependencyProperty, TArray<FAssetDependency>> PropDependency;
-	// TMap<UE::AssetRegistry::EDependencyCategory, TArray<FAssetDependency>> CatDependency;
-	// TMap<FName, FAssetDependency> DependencyMap;
 	
 	TSet<FName> ProcessedPackages;
 	TArray<FName> PackagesToBeProcessed{PackageNames};
@@ -84,26 +77,12 @@ TArray<FName> FGFPakExporterModule::GetAssetDependencies(const TArray<FName>& Pa
 				// Exclude script/memory packages
 				if (FPackageName::IsValidLongPackageName(Dependency.AssetId.PackageName.ToString()))
 				{
-					// PropDependency.FindOrAdd(Dependency.Properties).Add(Dependency);
-					// CatDependency.FindOrAdd(Dependency.Category).Add(Dependency);
-					//
-					// FAssetDependency& Dep = DependencyMap.FindOrAdd(Dependency.AssetId.PackageName);
-					// Dep.AssetId = Dependency.AssetId;
-					// Dep.Properties |= Dependency.Properties;
-					// Dep.Category |= Dependency.Category;
-					
-					// AllDependencyNamesSet.Add(Dependency.AssetId.PackageName);
 					PackagesToBeProcessed.Add(Dependency.AssetId.PackageName);
 				}
 			}
 		}
 	}
-
-	// TArray<FName> AllDependencyNames = AllDependencyNamesSet.Array();
-	// OutDependencies.Sort(FNameLexicalLess());
-	// AllDependencyNames.Sort(FNameLexicalLess());
 	
-	// OutDependencies = ProcessedPackages.Array();
 	return ProcessedPackages.Array();
 }
 

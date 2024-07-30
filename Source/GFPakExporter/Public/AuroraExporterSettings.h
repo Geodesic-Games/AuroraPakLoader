@@ -4,7 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "AuroraSaveFilePath.h"
-#include "AuroraExporterConfig.generated.h"
+#include "AuroraExporterSettings.generated.h"
 
 /**
  * 
@@ -48,14 +48,6 @@ public:
 	}
 
 	bool HasValidDLCName() const;
-	/**
-	 * Check if this config is a Plugin DLC config.
-	 * A Plugin DLC Config has no Assets and only one PackagePath which is the MountPoint of the Plugin Content.
-	 * The config also needs to not point to a DLC Plugin.
-	 * @param bEnsureDLCName if true, the DLCName property will also be checked, and it needs to match the MountPoint
-	 * @param OutPluginName if it is a PluginDLC, returns the name of the Plugin
-	 */
-	// bool IsPluginDLC(bool bEnsureDLCName = true, FString* OutPluginName = nullptr) const;
 
 	/** Return true if the rules of this Exporter Config should export the given Asset */
 	bool ShouldExportAsset(const FAssetData& AssetData) const;

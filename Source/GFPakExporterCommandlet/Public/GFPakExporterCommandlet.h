@@ -2,7 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 
 class GFPAKEXPORTERCOMMANDLET_API FGFPakExporterCommandletModule : public IModuleInterface
 {
@@ -26,11 +26,12 @@ public:
 	FString GetTempAssetRegistryPath();
 	/** Return the temporary Development AssetRegistry used by this plugin which is located in '<project>/Intermediate/AuroraExporter/AssetRegistry/Metadata/AssetRegistry.bin' */
 	FString GetTempDevelopmentAssetRegistryPath();
+
 private:
 	/** Adjust the command line as necessary. Returns true if this cook is an Aurora DLC cook (meaning having a FGFPakExporterModule::AuroraCommandLineSwitch flag in the command line) */
 	bool CheckCommandLineAndAdjustSettings();
-	
-    /** Function called to create our own Asset Manager before UE creates its own */
+
+	/** Function called to create our own Asset Manager before UE creates its own */
 	static void CreateAssetManager();
 	/**
 	 * Create a new Asset Registry (based on the project one) to be used as basis for the cook.
@@ -40,7 +41,9 @@ private:
 
 	/** The Aurora Settings read for this cook */
 	FAuroraExporterSettings ExporterSettings;
-	/** The Folder containing the Dummy Asset Registry. It is read from the commandline parameter
-	 * -BasedOnReleaseVersionRoot and should normally be set to FGFPakExporterModule::GetTempAssetRegistryDir() */
+	/**
+	 * The Folder containing the Dummy Asset Registry. It is read from the commandline parameter
+	 * -BasedOnReleaseVersionRoot and should normally be set to FGFPakExporterModule::GetTempAssetRegistryDir()
+	 */
 	FString AssetRegistryFolder;
 };

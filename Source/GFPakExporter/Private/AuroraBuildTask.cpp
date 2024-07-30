@@ -232,15 +232,6 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 	{
 		if ( ReturnCode == 0 )
 		{
-			// if (!ResultLocation.IsEmpty())
-			// {
-			// 	if (TSharedPtr<SNotificationItem> SharedNotificationItemPtr = NotificationItemPtr.Pin())
-			// 	{
-			// 		SharedNotificationItemPtr->SetHyperlink(FSimpleDelegate::CreateStatic(&FUATHelperModule::HandleUatResultHyperlinkNavigate, ResultLocation), LOCTEXT("ShowOutputLocation", "Show in Explorer"));
-			// 	}
-			//
-			// }
-			
 			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 				NotificationItemPtr,
 				SNotificationItem::CS_Success,
@@ -254,11 +245,10 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 				NotificationItemPtr,
 				SNotificationItem::CS_Fail,
 				FText::Format(LOCTEXT("PackagerFailedNotification", "'{0}' failed!"), FText::FromString(Settings.Config.DLCName)),
-				FText(), //FPackagingErrorHandler::GetHasAssetErrors() ? LOCTEXT("ShowResultsLogHyperlink", "Show Results Log") : FText(),
+				FText(),
 				false);
 			Status = ELauncherTaskStatus::Failed;
 		}
-		// LauncherWorker = nullptr;
 	}
 }
 
@@ -274,7 +264,6 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 			FText::Format(LOCTEXT("UatProcessFailedNotification", "'{0}' canceled!"), FText::FromString(Settings.Config.DLCName))
 		);
 		Status = ELauncherTaskStatus::Pending;
-		// LauncherWorker = nullptr;
 	}
 }
 

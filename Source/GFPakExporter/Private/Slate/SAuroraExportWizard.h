@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "AuroraExporterConfig.h"
+#include "AuroraExporterSettings.h"
 #include "Widgets/SCompoundWidget.h"
 
 class SPrimaryButton;
@@ -34,10 +34,7 @@ private:
 	/** Delegate triggered on wizard completion */
 	FOnExportWizardCompleted OnWizardCompleted;
 
-	/** Settings */
-	// FAuroraExporterSettings Settings;
-
-	//structonscope for details panel
+	//StructOnScope for details panel
 	TSharedPtr<TStructOnScope<FAuroraExporterSettings>> Settings;
 	TSharedPtr<IStructureDetailsView> ConfigDetailsView;
 	TSharedPtr<IStructureDetailsView> SettingsDetailsView;
