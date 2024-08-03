@@ -15,6 +15,23 @@ class GFPAKEXPORTERCOMMANDLET_API UGFPakExporterAssetManager : public UAssetMana
 	GENERATED_BODY()
 
 public:
+	virtual bool HandleCookCommand(FStringView Token) override;
+
+private:
+	virtual void CookAdditionalFilesOverride(const TCHAR* PackageFilename, const ITargetPlatform* TargetPlatform, TFunctionRef<void(const TCHAR* Filename, void* Data, int64 Size)> WriteAdditionalFile) override;
+
+public:
+	virtual void GetAdditionalAssetDataObjectsForCook(FArchiveCookContext& CookContext, TArray<UObject*>& OutObjects) const override;
+	virtual void ModifyCook(TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook) override;
+	virtual bool ShouldCookForPlatform(const UPackage* Package, const ITargetPlatform* TargetPlatform) override;
+	virtual EPrimaryAssetCookRule GetPackageCookRule(FName PackageName) const override;
+	virtual bool VerifyCanCookPackage(UE::Cook::ICookInfo* CookInfo, FName PackageName, bool bLogError) const override;
+	virtual bool GetPackageManagers(FName PackageName, bool bRecurseToParents, TMap<FPrimaryAssetId, UE::AssetRegistry::EDependencyProperty>& Managers) const override;
+
+protected:
+	virtual void GatherPublicAssetsForPackage(FName PackagePath, TArray<FName>& PackagesToCook) const override;
+
+public:
 	/** Gets package names to add to a DLC cook*/
 	virtual void ModifyDLCCook(const FString& DLCName, TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook) override;
 	/**
@@ -36,6 +53,11 @@ public:
 	
 	DECLARE_MULTICAST_DELEGATE_FourParams(FModifyDLCCookDelegate, const FString& /*DLCName*/, TConstArrayView<const ITargetPlatform*> /*TargetPlatforms*/, TArray<FName>& /*PackagesToCook*/, TArray<FName>& /*PackagesToNeverCook*/)
 	FModifyDLCCookDelegate OnModifyDLCCookDelegate;
+	DECLARE_MULTICAST_DELEGATE_ThreeParams(FModifyCookDelegate, TConstArrayView<const ITargetPlatform*> /*TargetPlatforms*/, TArray<FName>& /*PackagesToCook*/, TArray<FName>& /*PackagesToNeverCook*/)
+	FModifyCookDelegate OnModifyCookDelegate;
 	DECLARE_MULTICAST_DELEGATE_ThreeParams(FModifyDLCBasePackages, const ITargetPlatform* /*TargetPlatform*/, TArray<FName>& /*PlatformBasedPackages*/, TSet<FName>& /*PackagesToClearResults*/)
 	FModifyDLCBasePackages OnModifyDLCBasePackagesDelegate;
+
+	DECLARE_DELEGATE_RetVal_TwoParams(EPrimaryAssetCookRule, FGetPackageCookRule, EPrimaryAssetCookRule /*CurrentCookRule*/, FName /*PackageName*/)
+	FGetPackageCookRule OnGetPackageCookRule;
 };

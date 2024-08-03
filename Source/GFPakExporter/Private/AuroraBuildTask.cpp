@@ -235,7 +235,7 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 				NotificationItemPtr,
 				SNotificationItem::CS_Success,
-				FText::Format(LOCTEXT("UatProcessSucceededNotification", "'{0}' complete!"), FText::FromString(Settings.Config.DLCName))
+				FText::Format(LOCTEXT("UatProcessSucceededNotification", "'{0}' complete!"), FText::FromString(DLCSettings.Config.DLCName))
 			);
 			Status = ELauncherTaskStatus::Completed;
 		}
@@ -244,7 +244,7 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 				NotificationItemPtr,
 				SNotificationItem::CS_Fail,
-				FText::Format(LOCTEXT("PackagerFailedNotification", "'{0}' failed!"), FText::FromString(Settings.Config.DLCName)),
+				FText::Format(LOCTEXT("PackagerFailedNotification", "'{0}' failed!"), FText::FromString(DLCSettings.Config.DLCName)),
 				FText(),
 				false);
 			Status = ELauncherTaskStatus::Failed;
@@ -261,7 +261,7 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 		TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 			NotificationItemPtr,
 			SNotificationItem::CS_Fail,
-			FText::Format(LOCTEXT("UatProcessFailedNotification", "'{0}' canceled!"), FText::FromString(Settings.Config.DLCName))
+			FText::Format(LOCTEXT("UatProcessFailedNotification", "'{0}' canceled!"), FText::FromString(DLCSettings.Config.DLCName))
 		);
 		Status = ELauncherTaskStatus::Pending;
 	}
@@ -269,7 +269,7 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 
 bool FAuroraBuildTask::CreateNotification()
 {
-	FText DLCName = FText::FromString(Settings.Config.DLCName);
+	FText DLCName = FText::FromString(DLCSettings.Config.DLCName);
 	{
 		FScopeLock Lock(&NotificationTextMutex);
 		NotificationText = FText::GetEmpty();

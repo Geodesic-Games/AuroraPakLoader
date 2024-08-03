@@ -57,6 +57,21 @@ void FGFPakExporterContentBrowserContextMenu::RegisterMenus()
 			}
 		}));
 	}
+
+	if (UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("UnrealEd.PlayWorldCommands.PlatformsMenu"))
+	{
+		// FToolMenuInsert Insert{}
+		FToolMenuSection& Section = Menu->AddSection(TEXT("GFPakExporterActions"), LOCTEXT("GFPakExporterActionsMenuHeading", "Aurora"));
+		FToolMenuEntry& SectionMenu = Section.AddMenuEntry(
+			TEXT("GFPakExporter_CreateBaseGame_MenuName"),
+			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntry", "Create a Packaged Project"),
+			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntryTooltip", "Create a Base Game Packaged Project."),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction),
+				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
+			)
+		);
+	}
 }
 
 void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InMenu, bool bIsAssetMenu) const
@@ -83,13 +98,44 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 		UE_LOG(LogGFPakExporter, Verbose, TEXT("\t- %s"), *SelectedAsset.ToString());
 	}
 	
-	FAuroraExporterConfig Config;
-	Algo::Transform(SelectedPackagePaths, Config.PackagePaths, [](const FString& Path){ return FAuroraDirectoryPath{Path}; });
-	Config.Assets = SelectedAssets;
+	FAuroraDLCExporterConfig DLCConfig;
+	Algo::Transform(SelectedPackagePaths, DLCConfig.PackagePaths, [](const FString& Path){ return FAuroraDirectoryPath{Path}; });
+	DLCConfig.Assets = SelectedAssets;
 	
-	Config.DLCName = Config.GetDefaultDLCNameBasedOnContent(TEXT("DLCPak"));
+	DLCConfig.DLCName = DLCConfig.GetDefaultDLCNameBasedOnContent(TEXT("ContentDLCPak"));
+
+	bool bAddCreateDLCPakMenu = !DLCConfig.IsEmpty();
+
+
+	bool bAddCreateGamePakMenu = false;
+	if (const UContentBrowserDataMenuContext_FolderMenu* ContextObject = InMenu->FindContext<UContentBrowserDataMenuContext_FolderMenu>())
+	{
+		for (const FContentBrowserItem& SelectedItem : ContextObject->SelectedItems)
+		{
+			const FContentBrowserItemData* SelectedItemData = SelectedItem.GetPrimaryInternalItem();
+			if (!SelectedItemData)
+			{
+				return;
+			}
+
+			const UContentBrowserDataSource* DataSource = SelectedItemData->GetOwnerDataSource();
+			if (!DataSource)
+			{
+				return;
+			}
+			
+			for (const FContentBrowserItemData& InternalItems : SelectedItem.GetInternalItems())
+			{
+				if (InternalItems.GetVirtualPath() == TEXT("/All") || InternalItems.GetVirtualPath() == TEXT("/All/Game"))
+				{
+					bAddCreateGamePakMenu = true;
+					break;
+				}
+			}
+		}
+	}
 	
-	if (Config.IsEmpty())
+	if (!bAddCreateDLCPakMenu && !bAddCreateGamePakMenu)
 	{
 		return;
 	}
@@ -104,15 +150,29 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 	{
 		Section.InsertPosition = FToolMenuInsert(TEXT("PathViewFolderOptions"), EToolMenuInsertType::Before);
 	}
+
+	if (bAddCreateGamePakMenu)
+	{
+		FToolMenuEntry& Menu = Section.AddMenuEntry(
+			TEXT("GFPakExporter_CreateBaseGame_MenuName"),
+			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntry", "Create a Packaged Project"),
+			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntryTooltip", "Create a Base Game Packaged Project."),
+			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction),
+				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
+			)
+		);
+	}
 	
+	if (bAddCreateDLCPakMenu)
 	{
 		FToolMenuEntry& Menu = Section.AddMenuEntry(
 			TEXT("GFPakExporter_CreateDLC_MenuName"),
 			LOCTEXT("GFPakExporter_CreateDLC_MenuEntry", "Create a Content DLC Pak"),
-			LOCTEXT("GFPakExporter_CreateContentDLC_MenuEntryTooltip", "Create a cooked DLC Pak of the selected Content."),
+			LOCTEXT("GFPakExporter_CreateDLC_MenuEntryTooltip", "Create a cooked DLC Pak of the selected Content."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
-			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction, Config),
-				FCanExecuteAction::CreateLambda([]() { return (bool)UGFPakExporterSubsystem::Get(); })
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction, DLCConfig),
+				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
 			)
 		);
 	}
@@ -166,11 +226,19 @@ void FGFPakExporterContentBrowserContextMenu::GetSelectedFilesAndFolders(const U
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction(FAuroraExporterConfig InConfig)
+void FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction()
 {
 	if (UGFPakExporterSubsystem* Subsystem = UGFPakExporterSubsystem::Get())
 	{
-		Subsystem->PromptForExport(InConfig);
+		Subsystem->PromptForBaseGameExport();
+	}
+}
+
+void FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction(FAuroraDLCExporterConfig InConfig)
+{
+	if (UGFPakExporterSubsystem* Subsystem = UGFPakExporterSubsystem::Get())
+	{
+		Subsystem->PromptForContentDLCExport(InConfig);
 	}
 }
 

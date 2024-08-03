@@ -23,16 +23,21 @@ public:
 	
 	static UGFPakExporterSubsystem* Get() { return GEditor ? GEditor->GetEditorSubsystem<UGFPakExporterSubsystem>() : nullptr; }
 
+	void PromptForBaseGameExport();
+	
 	// DECLARE_DYNAMIC_DELEGATE_OneParam(FOnExportWizardCompleted, TOptional<FAuroraExporterSettings>, Settings)
 	// todo: what delegate to create for BP? and when?
-	void PromptForExport(const FAuroraExporterConfig& InConfig)
+	void PromptForContentDLCExport(const FAuroraDLCExporterConfig& InConfig)
 	{
-		PromptForExport(FAuroraExporterSettings{InConfig});
+		PromptForContentDLCExport(FAuroraContentDLCExporterSettings{InConfig});
 	}
-	void PromptForExport(const FAuroraExporterSettings& InSettings);
+	void PromptForContentDLCExport(const FAuroraContentDLCExporterSettings& InSettings);
+
+	ILauncherProfilePtr CreateBaseGameLauncherProfile(const FAuroraBaseGameExporterSettings& InBaseGameSettings) const;
+	TSharedPtr<FAuroraBuildTask> LaunchBaseGameProfile(const ILauncherProfilePtr& InProfile, const FAuroraBaseGameExporterSettings& InBaseGameSettings);
 	
-	ILauncherProfilePtr CreateLauncherProfileFromSettings(const FAuroraExporterSettings& InSettings) const;
-	TSharedPtr<FAuroraBuildTask> LaunchProfile(const ILauncherProfilePtr& InProfile, const FAuroraExporterSettings& InSettings);
+	ILauncherProfilePtr CreateContentDLCLauncherProfileFromSettings(const FAuroraContentDLCExporterSettings& InDLCSettings) const;
+	TSharedPtr<FAuroraBuildTask> LaunchContentDLCProfile(const ILauncherProfilePtr& InProfile, const FAuroraContentDLCExporterSettings& InDLCSettings);
 
 	bool IsExporting() const;
 	bool CanCloseEditor() const;
@@ -40,4 +45,5 @@ private:
 	ILauncherPtr Launcher{};
 	TSharedPtr<FAuroraBuildTask> AuroraBuildTask{};
 	FDelegateHandle CanCloseEditorDelegate;
+	FAuroraBaseGameExporterSettings LastBaseGameSettings{};
 };

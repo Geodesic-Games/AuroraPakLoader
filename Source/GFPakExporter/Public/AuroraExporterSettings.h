@@ -10,7 +10,7 @@
  * 
  */
 USTRUCT(Blueprintable)
-struct GFPAKEXPORTER_API FAuroraExporterConfig
+struct GFPAKEXPORTER_API FAuroraDLCExporterConfig
 {
 	GENERATED_BODY()
 public:
@@ -22,19 +22,19 @@ public:
 	 * List of Folders to include in this export (all their content and subfolders will also be included). They need to start with a MountPoint.
 	 * Ex: /Game/Folder/Maps  or /PluginName/Blueprints
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true, ContentDir, LongPackageName))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Included Assets", meta=(FullyExpand=true, ContentDir, LongPackageName))
 	TArray<FAuroraDirectoryPath> PackagePaths; //todo: allow packages to not export subfolders 
 	
 	/**
 	 * List of Assets to include in this export.
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Included Assets", meta=(FullyExpand=true))
 	TArray<FSoftObjectPath> Assets;
 
 	/**
 	 * If true, all assets that the packaged Assets are dependent on will also be included.
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(FullyExpand=true))
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Included Assets", meta=(FullyExpand=true))
 	bool bIncludeHardReferences = true; //todo: make the UI display the dependent packages
 
 	bool IsEmpty() const
@@ -54,7 +54,64 @@ public:
 	
 	FString GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const;
 	
-	static TOptional<FAuroraExporterConfig> FromPluginName(const FString& InPluginName);
+	static TOptional<FAuroraDLCExporterConfig> FromPluginName(const FString& InPluginName);
+};
+
+
+/**
+ * 
+ */
+USTRUCT(Blueprintable)
+struct GFPAKEXPORTER_API FAuroraBaseGameExporterConfig
+{
+	GENERATED_BODY()
+public:
+	/**
+	 * List of Folders to include in this export (all their content and subfolders will also be included). They need to start with a MountPoint.
+	 * Ex: /Game/Folder/Maps  or /PluginName/Blueprints
+	 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Additional Included Assets", meta=(FullyExpand=true, ContentDir, LongPackageName))
+	TArray<FAuroraDirectoryPath> PackagePathsToInclude; //todo: allow packages to not export subfolders 
+	
+	/**
+	 * List of Assets to include in this export.
+	 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Additional Included Assets", meta=(FullyExpand=true))
+	TArray<FSoftObjectPath> AssetsToInclude;
+
+	/**
+	 * List of Folders to exclude in this export (all their content and subfolders will also be excluded). They need to start with a MountPoint.
+	 * Ex: /Game/Folder/Maps  or /PluginName/Blueprints
+	 * Important: if the assets inside the folders are referenced by other assets to be cooked, they will still be included in the final cook
+	 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Additional Excluded Assets", meta=(FullyExpand=true, ContentDir, LongPackageName))
+	TArray<FAuroraDirectoryPath> PackagePathsToExclude; //todo: allow packages to not export subfolders 
+	
+	/**
+	 * List of Assets to exclude in this export.
+	 * Important: if the assets inside the folders are referenced by other assets to be cooked, they will still be included in the final cook
+	 */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category="Additional Excluded Assets", meta=(FullyExpand=true))
+	TArray<FSoftObjectPath> AssetsToExclude;
+
+	bool IsEmpty() const
+	{
+		return PackagePathsToInclude.IsEmpty() && AssetsToInclude.IsEmpty() &&
+			PackagePathsToExclude.IsEmpty() && AssetsToExclude.IsEmpty();
+	}
+
+	enum class EAssetExportRule : uint8
+	{
+		Unknown,
+		Include,
+		Exclude,
+	};
+	/**
+	 * Return the Export Rule for this asset.
+	 * An Asset directly listed in `AdditionalAssetsTo *Include*` will have priority over `AdditionalAssetsTo *Exclude*`.
+	 * If it is not listed there, `AdditionalPackagePathsTo *Include*` will have priority over `AdditionalPackagePathsTo *Exclude*`
+	 */
+	EAssetExportRule GetAssetExportRule(FName PackageName) const;
 };
 
 
@@ -66,19 +123,14 @@ enum class EAuroraBuildConfiguration : uint8
 {
 	/** Unknown build configuration. */
 	Unknown,
-
 	/** Debug build. */
 	Debug,
-
 	/** DebugGame build. */
 	DebugGame,
-
 	/** Development build. */
 	Development,
-
 	/** Shipping build. */
 	Shipping,
-
 	/** Test build. */
 	Test
 };
@@ -87,18 +139,10 @@ enum class EAuroraBuildConfiguration : uint8
  * 
  */
 USTRUCT(Blueprintable)
-struct GFPAKEXPORTER_API FAuroraExporterSettings
+struct GFPAKEXPORTER_API FAuroraBuildSettings
 {
 	GENERATED_BODY()
 public:
-	FAuroraExporterSettings() = default;
-	FAuroraExporterSettings(const FAuroraExporterSettings&) = default;
-	
-	explicit FAuroraExporterSettings(const FAuroraExporterConfig& InConfig) : Config(InConfig) {}
-	
-	/** The Configuration for the Export */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
-	FAuroraExporterConfig Config;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	EAuroraBuildConfiguration BuildConfiguration = EAuroraBuildConfiguration::Development;
@@ -113,19 +157,78 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	bool bBuildUAT = false;
+};
 
+
+/**
+ * 
+ */
+USTRUCT(Blueprintable)
+struct GFPAKEXPORTER_API FAuroraContentDLCExporterSettings
+{
+	GENERATED_BODY()
+public:
+	FAuroraContentDLCExporterSettings() = default;
+	FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterSettings&) = default;
+	
+	explicit FAuroraContentDLCExporterSettings(const FAuroraDLCExporterConfig& InConfig) : Config(InConfig) {}
+	
+	/** The Configuration for the Export */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
+	FAuroraDLCExporterConfig Config;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
+	FAuroraBuildSettings BuildSettings;
+	
 	/** Location where the Config Json will be saved. Leave blank to save in the default location in the Intermediate folder */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Transient, AdvancedDisplay, Category=Settings, meta = (FilePathFilter = "json"))
 	FAuroraSaveFilePath SettingsFilePath;
-
+	
 	bool LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject);
 	bool LoadJsonSettings(const FString& InJsonPath);
 	bool SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const;
 	bool SaveJsonSettings(const FString& InJsonPath) const;
-
-	static TOptional<FAuroraExporterSettings> FromJsonSettings(const FString& InJsonPath)
+	
+	static TOptional<FAuroraContentDLCExporterSettings> FromJsonSettings(const FString& InJsonPath)
 	{
-		FAuroraExporterSettings Settings;
-		return Settings.LoadJsonSettings(InJsonPath) ? MoveTemp(Settings) : TOptional<FAuroraExporterSettings>{};
+		FAuroraContentDLCExporterSettings Settings;
+		return Settings.LoadJsonSettings(InJsonPath) ? MoveTemp(Settings) : TOptional<FAuroraContentDLCExporterSettings>{};
+	}
+};
+
+
+/**
+ * 
+ */
+USTRUCT(Blueprintable)
+struct GFPAKEXPORTER_API FAuroraBaseGameExporterSettings
+{
+	GENERATED_BODY()
+public:
+	FAuroraBaseGameExporterSettings() = default;
+	FAuroraBaseGameExporterSettings(const FAuroraBaseGameExporterSettings&) = default;
+	
+	explicit FAuroraBaseGameExporterSettings(const FAuroraBaseGameExporterConfig& InConfig) : Config(InConfig) {}
+	
+	/** The Configuration for the Export */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
+	FAuroraBaseGameExporterConfig Config;
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
+	FAuroraBuildSettings BuildSettings;
+	
+	/** Location where the Config Json will be saved. Leave blank to save in the default location in the Intermediate folder */
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Transient, AdvancedDisplay, Category=Settings, meta = (FilePathFilter = "json"))
+	FAuroraSaveFilePath SettingsFilePath;
+	
+	bool LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject);
+	bool LoadJsonSettings(const FString& InJsonPath);
+	bool SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const;
+	bool SaveJsonSettings(const FString& InJsonPath) const;
+	
+	static TOptional<FAuroraBaseGameExporterSettings> FromJsonSettings(const FString& InJsonPath)
+	{
+		FAuroraBaseGameExporterSettings Settings;
+		return Settings.LoadJsonSettings(InJsonPath) ? MoveTemp(Settings) : TOptional<FAuroraBaseGameExporterSettings>{};
 	}
 };

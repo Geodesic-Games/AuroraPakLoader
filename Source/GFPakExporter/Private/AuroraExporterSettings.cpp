@@ -8,7 +8,9 @@
 #include "PluginUtils.h"
 
 
-bool FAuroraExporterConfig::HasValidDLCName() const
+// -- FAuroraDLCExporterConfig
+
+bool FAuroraDLCExporterConfig::HasValidDLCName() const
 {
 	if (DLCName.IsEmpty())
 	{
@@ -20,7 +22,7 @@ bool FAuroraExporterConfig::HasValidDLCName() const
 	return Leaf == DLCName && !DLCName.Contains(TEXT("."));
 }
 
-bool FAuroraExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
+bool FAuroraDLCExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
 {
 	if (Assets.Contains(AssetData.GetSoftObjectPath()))
 	{
@@ -33,7 +35,7 @@ bool FAuroraExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
 	});
 }
 
-FString FAuroraExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const
+FString FAuroraDLCExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const
 {
 	// Here we are trying the get the common path between all the assets, and return the name of the common folder containing all these assets
 	TArray<FString> StartPath;
@@ -120,19 +122,66 @@ FString FAuroraExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& Fa
 	return StartPath.IsEmpty() ? FallbackName : StartPath.Last();
 }
 
-TOptional<FAuroraExporterConfig> FAuroraExporterConfig::FromPluginName(const FString& InPluginName)
+TOptional<FAuroraDLCExporterConfig> FAuroraDLCExporterConfig::FromPluginName(const FString& InPluginName)
 {
 	if (FPluginUtils::IsValidPluginName(InPluginName))
 	{
-		FAuroraExporterConfig Config;
+		FAuroraDLCExporterConfig Config;
 		Config.DLCName = InPluginName;
 		Config.PackagePaths.Add(FAuroraDirectoryPath{TEXT("/") + InPluginName});
 		return Config;
 	}
-	return TOptional<FAuroraExporterConfig>{};
+	return TOptional<FAuroraDLCExporterConfig>{};
 }
 
-bool FAuroraExporterSettings::LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject)
+
+// --- FAuroraBaseGameExporterConfig
+
+FAuroraBaseGameExporterConfig::EAssetExportRule FAuroraBaseGameExporterConfig::GetAssetExportRule(FName PackageName) const
+{
+	const FSoftObjectPath ObjectPath{PackageName.ToString()};
+	
+	if (AssetsToInclude.ContainsByPredicate([&PackageName](const FSoftObjectPath& Asset)
+		{
+			return Asset.GetLongPackageFName() == PackageName;
+		}))
+	{
+		return EAssetExportRule::Include;
+	}
+
+	if (AssetsToExclude.ContainsByPredicate([&PackageName](const FSoftObjectPath& Asset)
+		{
+			return Asset.GetLongPackageFName() == PackageName;
+		}))
+	{
+		return EAssetExportRule::Exclude;
+	}
+	
+	const bool bIncludedInPath = PackagePathsToInclude.ContainsByPredicate([&PackageName](const FAuroraDirectoryPath& ContentFolder)
+	{
+		return FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path);
+	});
+	if (bIncludedInPath)
+	{
+		return EAssetExportRule::Include;
+	}
+
+	const bool bExcludedInPath = PackagePathsToExclude.ContainsByPredicate([&PackageName](const FAuroraDirectoryPath& ContentFolder)
+	{
+		return FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path);
+	});
+	if (bExcludedInPath)
+	{
+		return EAssetExportRule::Exclude;
+	}
+
+	return EAssetExportRule::Unknown;
+}
+
+
+// --- FAuroraDLCExporterSettings
+
+bool FAuroraContentDLCExporterSettings::LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject)
 {
 	if (!JsonObject)
 	{
@@ -142,7 +191,7 @@ bool FAuroraExporterSettings::LoadJsonSettings(const TSharedPtr<FJsonObject>& Js
 	return FJsonObjectConverter::JsonObjectToUStruct(JsonObject.ToSharedRef(), StaticStruct(), this);
 }
 
-bool FAuroraExporterSettings::LoadJsonSettings(const FString& InJsonPath)
+bool FAuroraContentDLCExporterSettings::LoadJsonSettings(const FString& InJsonPath)
 {
 	if (InJsonPath.IsEmpty())
 	{
@@ -153,14 +202,14 @@ bool FAuroraExporterSettings::LoadJsonSettings(const FString& InJsonPath)
 
 	if (!FPaths::FileExists(Filename))
 	{
-		UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraExporterSettings::LoadJsonConfig: Json Configuration file '%s'%s not found."), *InJsonPath, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Json Configuration file '%s'%s not found."), *InJsonPath, *DebugAdjusted);
 		return false;
 	}
 
 	FString InJsonString;
 	if (!FFileHelper::LoadFileToString(InJsonString, *Filename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraExporterSettings::LoadJsonConfig: Couldn't read file: '%s'%s"), *Filename, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Couldn't read file: '%s'%s"), *Filename, *DebugAdjusted);
 		return false;
 	}
 
@@ -168,16 +217,16 @@ bool FAuroraExporterSettings::LoadJsonSettings(const FString& InJsonPath)
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(InJsonString);
 	if (!FJsonSerializer::Deserialize(JsonReader, JsonRoot))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraExporterSettings::LoadJsonConfig: Couldn't parse json data from file: '%s'%s"), *Filename, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Couldn't parse json data from file: '%s'%s"), *Filename, *DebugAdjusted);
 		return false;
 	}
 
-	UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
+	UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
 	SettingsFilePath.FilePath = InJsonPath;
 	return LoadJsonSettings(JsonRoot);
 }
 
-bool FAuroraExporterSettings::SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const
+bool FAuroraContentDLCExporterSettings::SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const
 {
 	if (!JsonObject)
 	{
@@ -188,7 +237,7 @@ bool FAuroraExporterSettings::SaveJsonSettings(const TSharedPtr<FJsonObject>& Js
 	return true;
 }
 
-bool FAuroraExporterSettings::SaveJsonSettings(const FString& InJsonPath) const
+bool FAuroraContentDLCExporterSettings::SaveJsonSettings(const FString& InJsonPath) const
 {
 	if (InJsonPath.IsEmpty())
 	{
@@ -199,7 +248,7 @@ bool FAuroraExporterSettings::SaveJsonSettings(const FString& InJsonPath) const
 	const TSharedPtr<FJsonObject> JsonRoot = MakeShared<FJsonObject>();
 	if (!SaveJsonSettings(JsonRoot))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraExporterSettings::SaveJsonConfig: Couldn't save the config to JSON: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't save the config to JSON: '%s'"), *Filename);
 		return false;
 	}
 	
@@ -207,13 +256,104 @@ bool FAuroraExporterSettings::SaveJsonSettings(const FString& InJsonPath) const
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJsonString);
 	if (!FJsonSerializer::Serialize(JsonRoot.ToSharedRef(), Writer))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraExporterSettings::SaveJsonConfig: Couldn't serialize the Json to file: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't serialize the Json to file: '%s'"), *Filename);
 		return false;
 	}
 
 	if (!FFileHelper::SaveStringToFile(OutJsonString, *Filename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraExporterSettings::SaveJsonConfig: Couldn't save to file: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't save to file: '%s'"), *Filename);
+		return false;
+	}
+
+	return true;
+}
+
+
+// --- FAuroraBaseGameExporterSettings
+
+bool FAuroraBaseGameExporterSettings::LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject)
+{
+	if (!JsonObject)
+	{
+		return false;
+	}
+	
+	return FJsonObjectConverter::JsonObjectToUStruct(JsonObject.ToSharedRef(), StaticStruct(), this);
+}
+
+bool FAuroraBaseGameExporterSettings::LoadJsonSettings(const FString& InJsonPath)
+{
+	if (InJsonPath.IsEmpty())
+	{
+		return false;
+	}
+	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); // For Game builds to debug Sandbox File Paths
+	FString DebugAdjusted = InJsonPath == Filename ? FString{} : FString::Printf(TEXT(" (adjusted to '%s')"), *Filename);
+
+	if (!FPaths::FileExists(Filename))
+	{
+		UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Json Configuration file '%s'%s not found."), *InJsonPath, *DebugAdjusted);
+		return false;
+	}
+
+	FString InJsonString;
+	if (!FFileHelper::LoadFileToString(InJsonString, *Filename))
+	{
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Couldn't read file: '%s'%s"), *Filename, *DebugAdjusted);
+		return false;
+	}
+
+	TSharedPtr<FJsonObject> JsonRoot = MakeShared<FJsonObject>();
+	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(InJsonString);
+	if (!FJsonSerializer::Deserialize(JsonReader, JsonRoot))
+	{
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Couldn't parse json data from file: '%s'%s"), *Filename, *DebugAdjusted);
+		return false;
+	}
+
+	UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
+	SettingsFilePath.FilePath = InJsonPath;
+	return LoadJsonSettings(JsonRoot);
+}
+
+bool FAuroraBaseGameExporterSettings::SaveJsonSettings(const TSharedPtr<FJsonObject>& JsonObject) const
+{
+	if (!JsonObject)
+	{
+		return false;
+	}
+	
+	FJsonObjectConverter::UStructToJsonObject(StaticStruct(), this, JsonObject.ToSharedRef(), 0, 0, nullptr, EJsonObjectConversionFlags::SkipStandardizeCase);
+	return true;
+}
+
+bool FAuroraBaseGameExporterSettings::SaveJsonSettings(const FString& InJsonPath) const
+{
+	if (InJsonPath.IsEmpty())
+	{
+		return false;
+	}
+	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); //For Game builds to debug Sandbox File Paths
+	
+	const TSharedPtr<FJsonObject> JsonRoot = MakeShared<FJsonObject>();
+	if (!SaveJsonSettings(JsonRoot))
+	{
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraBaseGameExporterSettings::SaveJsonConfig: Couldn't save the config to JSON: '%s'"), *Filename);
+		return false;
+	}
+	
+	FString OutJsonString;
+	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJsonString);
+	if (!FJsonSerializer::Serialize(JsonRoot.ToSharedRef(), Writer))
+	{
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraBaseGameExporterSettings::SaveJsonConfig: Couldn't serialize the Json to file: '%s'"), *Filename);
+		return false;
+	}
+
+	if (!FFileHelper::SaveStringToFile(OutJsonString, *Filename))
+	{
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraBaseGameExporterSettings::SaveJsonConfig: Couldn't save to file: '%s'"), *Filename);
 		return false;
 	}
 

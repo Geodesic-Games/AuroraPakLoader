@@ -11,8 +11,10 @@ class GFPAKEXPORTER_API FGFPakExporterModule : public IModuleInterface
 {
 public:
     static const FName ModuleName;
-    /** The Name of the command line switch added to the cook command. Should return 'AuroraDLCConfig' */
-    static const FString AuroraCommandLineParameter;
+    /** The Name of the command line switch added to the cook command for DLC Content. Should return 'AuroraDLCConfig' */
+    static const FString AuroraContentDLCCommandLineParameter;
+    /** The Name of the command line switch added to the cook command for Base Game. Should return 'AuroraBaseGameConfig' */
+    static const FString AuroraBaseGameCommandLineParameter;
     
     static FGFPakExporterModule& Get()
     {

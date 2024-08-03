@@ -11,16 +11,82 @@
 #define LOCTEXT_NAMESPACE "AuroraExportWizard"
 
 
-void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExporterSettings& InInitialSettings, const FOnExportWizardCompleted& InOnExportWizardCompleted)
+void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraContentDLCExporterSettings& InInitialDLCSettings, const FOnContentDLCExportWizardCompleted& InOnExportWizardCompleted)
 {
-	OnWizardCompleted = InOnExportWizardCompleted;
+	OnContentDLCWizardCompleted = InOnExportWizardCompleted;
 
-	// Settings = InInitialSettings;
+	ContentDLCSettings = MakeShared<TStructOnScope<FAuroraContentDLCExporterSettings>>();
+	ContentDLCSettings->InitializeAs<FAuroraContentDLCExporterSettings>(InInitialDLCSettings);
+	BaseGameSettings = nullptr;
+	
+	Construct(InArgs);
+}
 
+void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraBaseGameExporterSettings& InInitialGameSettings, const FOnBaseGameExportWizardCompleted& InOnExportWizardCompleted)
+{
+	OnBaseGameWizardCompleted = InOnExportWizardCompleted;
 
-	Settings = MakeShared<TStructOnScope<FAuroraExporterSettings>>();
-	Settings->InitializeAs<FAuroraExporterSettings>(InInitialSettings);
+	BaseGameSettings = MakeShared<TStructOnScope<FAuroraBaseGameExporterSettings>>();
+	BaseGameSettings->InitializeAs<FAuroraBaseGameExporterSettings>(InInitialGameSettings);
+	ContentDLCSettings = nullptr;
+	
+	Construct(InArgs);
+}
 
+void SAuroraExportWizard::OpenWizard(const FAuroraContentDLCExporterSettings& InInitialDLCSettings, const FOnContentDLCExportWizardCompleted& InOnExportWizardCompleted)
+{
+	const TSharedRef<SWindow> WizardWindow = SNew(SWindow)
+		.Title(LOCTEXT("Window_Title_ContentDLC", "Aurora | Export Content DLC Pak"))
+		.ClientSize(FVector2D(960, 700))
+		.SupportsMaximize(false)
+		.SupportsMinimize(false)
+		[
+			SNew(SAuroraExportWizard, InInitialDLCSettings, InOnExportWizardCompleted)
+		];
+	
+	OpenWizard(WizardWindow);
+}
+
+void SAuroraExportWizard::OpenWizard(const FAuroraBaseGameExporterSettings& InInitialGameSettings, const FOnBaseGameExportWizardCompleted& InOnExportWizardCompleted)
+{
+	const TSharedRef<SWindow> WizardWindow = SNew(SWindow)
+		.Title(LOCTEXT("Window_Title_BaseGame", "Aurora | Export Packaged Project"))
+		.ClientSize(FVector2D(960, 700))
+		.SupportsMaximize(false)
+		.SupportsMinimize(false)
+		[
+			SNew(SAuroraExportWizard, InInitialGameSettings, InOnExportWizardCompleted)
+		];
+	
+	OpenWizard(WizardWindow);
+}
+
+void SAuroraExportWizard::CloseDialog()
+{
+	const TSharedPtr<SWindow> ContainingWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
+	if (ContainingWindow.IsValid())
+	{
+		ContainingWindow->RequestDestroyWindow();
+	}
+}
+
+void SAuroraExportWizard::OpenWizard(const TSharedRef<SWindow>& WizardWindow)
+{
+	const IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>(TEXT("MainFrame"));
+	const TSharedPtr<SWindow> ParentWindow = MainFrameModule.GetParentWindow();
+	
+	if (ParentWindow.IsValid())
+	{
+		FSlateApplication::Get().AddWindowAsNativeChild(WizardWindow, MainFrameModule.GetParentWindow().ToSharedRef());
+	}
+	else
+	{
+		FSlateApplication::Get().AddWindow(WizardWindow);
+	}
+}
+
+void SAuroraExportWizard::Construct(const FArguments& InArgs)
+{
 	FStructureDetailsViewArgs StructureViewArgs;
 	StructureViewArgs.bShowObjects = true;
 	StructureViewArgs.bShowAssets = true;
@@ -43,13 +109,26 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 	ConfigDetailsView = PropertyEditor.CreateStructureDetailView(ViewArgs, StructureViewArgs, TSharedPtr<FStructOnScope>());
 	{
 		ConfigDetailsView->GetDetailsView()->SetIsPropertyVisibleDelegate(FIsPropertyVisible::CreateSP(this, &SAuroraExportWizard::HandleIsPropertyFromConfigVisible));
-		// ConfigDetailsView->GetOnFinishedChangingPropertiesDelegate().AddSP()
-		ConfigDetailsView->SetStructureData(Settings); //The Visibility will only be checked when setting the structure
+		if (IsBaseGameExport()) //The Visibility will only be checked when setting the structure
+		{
+			ConfigDetailsView->SetStructureData(BaseGameSettings);
+		}
+		else
+		{
+			ConfigDetailsView->SetStructureData(ContentDLCSettings);
+		}
 	}
 	SettingsDetailsView = PropertyEditor.CreateStructureDetailView(ViewArgs, StructureViewArgs, TSharedPtr<FStructOnScope>());
 	{
 		SettingsDetailsView->GetDetailsView()->SetIsPropertyVisibleDelegate(FIsPropertyVisible::CreateSP(this, &SAuroraExportWizard::HandleIsPropertyFromSettingsVisible));
-		SettingsDetailsView->SetStructureData(Settings); //The Visibility will only be checked when setting the structure
+		if (IsBaseGameExport()) //The Visibility will only be checked when setting the structure
+		{
+			SettingsDetailsView->SetStructureData(BaseGameSettings);
+		}
+		else
+		{
+			SettingsDetailsView->SetStructureData(ContentDLCSettings);
+		}
 	}
 	
 	ChildSlot
@@ -66,7 +145,7 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 			[
 				SNew(STextBlock)
 				.Font(FAppStyle::Get().GetFontStyle("HeadingExtraSmall"))
-				.Text(LOCTEXT("Export_Title", "Export DLC Pak"))
+				.Text(IsBaseGameExport() ? LOCTEXT("Export_Title_BaseGame", "Export Packaged Base Game Project") : LOCTEXT("Export_Title_ContentDLC", "Export DLC Pak"))
 				.TransformPolicy(ETextTransformPolicy::ToUpper)
 			]
 			
@@ -111,14 +190,19 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 					SAssignNew(ExportButton, SPrimaryButton)
 					.Text(LOCTEXT("Export_Label", "Export"))
 					.OnClicked(this, &SAuroraExportWizard::HandleExportButtonClicked)
-					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [Settings = Settings]()
+					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [bIsBaseGameExport = IsBaseGameExport(), ContentDLCSettings = ContentDLCSettings]()
 					{
-						if (GEditor && Settings)
+						if (bIsBaseGameExport)
+						{
+							return true;
+						}
+						
+						if (GEditor && ContentDLCSettings)
 						{
 							UGFPakExporterSubsystem* Subsystem = GEditor->GetEditorSubsystem<UGFPakExporterSubsystem>();
 							if (Subsystem && !Subsystem->IsExporting())
 							{
-								if (FAuroraExporterSettings* ExporterSettings = Settings->Cast<FAuroraExporterSettings>())
+								if (FAuroraContentDLCExporterSettings* ExporterSettings = ContentDLCSettings->Cast<FAuroraContentDLCExporterSettings>())
 								{
 									return ExporterSettings->Config.IsValid();
 								}
@@ -145,59 +229,43 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs, const FAuroraExpor
 	];
 }
 
-void SAuroraExportWizard::OpenWizard(const FAuroraExporterSettings& InInitialSettings, const FOnExportWizardCompleted& InOnExportWizardCompleted)
-{
-	const TSharedRef<SWindow> ReportWindow = SNew(SWindow)
-		.Title(LOCTEXT("Window_Title", "Aurora | Export Content DLC Pak"))
-		.ClientSize(FVector2D(960, 700))
-		.SupportsMaximize(false)
-		.SupportsMinimize(false)
-		[
-			SNew(SAuroraExportWizard, InInitialSettings, InOnExportWizardCompleted)
-		];
-	
-
-	const IMainFrameModule& MainFrameModule = FModuleManager::LoadModuleChecked<IMainFrameModule>(TEXT("MainFrame"));
-	const TSharedPtr<SWindow> ParentWindow = MainFrameModule.GetParentWindow();
-	
-	if (ParentWindow.IsValid())
-	{
-		FSlateApplication::Get().AddWindowAsNativeChild(ReportWindow, MainFrameModule.GetParentWindow().ToSharedRef());
-	}
-	else
-	{
-		FSlateApplication::Get().AddWindow(ReportWindow);
-	}
-}
-
-void SAuroraExportWizard::CloseDialog()
-{
-	const TSharedPtr<SWindow> ContainingWindow = FSlateApplication::Get().FindWidgetWindow(AsShared());
-	if (ContainingWindow.IsValid())
-	{
-		ContainingWindow->RequestDestroyWindow();
-	}
-}
-
 FReply SAuroraExportWizard::HandleExportButtonClicked()
 {
 	CloseDialog();
-	FAuroraExporterSettings* SettingsPtr = Settings->Cast<FAuroraExporterSettings>();
-	TOptional<FAuroraExporterSettings> ReturnSettings = SettingsPtr ? TOptional<FAuroraExporterSettings>(*SettingsPtr) : TOptional<FAuroraExporterSettings>{};
-	OnWizardCompleted.ExecuteIfBound(ReturnSettings);
+	if (IsBaseGameExport())
+	{
+		FAuroraBaseGameExporterSettings* SettingsPtr = BaseGameSettings->Cast<FAuroraBaseGameExporterSettings>();
+		TOptional<FAuroraBaseGameExporterSettings> ReturnSettings = SettingsPtr ? TOptional<FAuroraBaseGameExporterSettings>(*SettingsPtr) : TOptional<FAuroraBaseGameExporterSettings>{};
+		OnBaseGameWizardCompleted.ExecuteIfBound(ReturnSettings);
+	}
+	else
+	{
+		FAuroraContentDLCExporterSettings* SettingsPtr = ContentDLCSettings->Cast<FAuroraContentDLCExporterSettings>();
+		TOptional<FAuroraContentDLCExporterSettings> ReturnSettings = SettingsPtr ? TOptional<FAuroraContentDLCExporterSettings>(*SettingsPtr) : TOptional<FAuroraContentDLCExporterSettings>{};
+		OnContentDLCWizardCompleted.ExecuteIfBound(ReturnSettings);
+	}
+	
 	return FReply::Handled();
 }
 
 FReply SAuroraExportWizard::HandleCancelButtonClicked()
 {
 	CloseDialog();
-	OnWizardCompleted.ExecuteIfBound(TOptional<FAuroraExporterSettings>{});
+	if (IsBaseGameExport())
+	{
+		OnBaseGameWizardCompleted.ExecuteIfBound(TOptional<FAuroraBaseGameExporterSettings>{});
+	}
+	else
+	{
+		OnContentDLCWizardCompleted.ExecuteIfBound(TOptional<FAuroraContentDLCExporterSettings>{});
+	}
+	
 	return FReply::Handled();
 }
 
 bool SAuroraExportWizard::HandleIsPropertyFromConfigVisible(const FPropertyAndParent& InPropertyAndParent)
 {
-	FName ConfigProperty = GET_MEMBER_NAME_CHECKED(FAuroraExporterSettings, Config);
+	FName ConfigProperty = GET_MEMBER_NAME_CHECKED(FAuroraContentDLCExporterSettings, Config);
 	return ConfigProperty == InPropertyAndParent.Property.GetFName() ||
 		InPropertyAndParent.ParentProperties.ContainsByPredicate(
 			[&ConfigProperty](const FProperty* Prop) { return Prop->GetFName() == ConfigProperty; });

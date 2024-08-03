@@ -13,7 +13,8 @@
 
 
 const FName FGFPakExporterModule::ModuleName{TEXT("GFPakExporter")};
-const FString FGFPakExporterModule::AuroraCommandLineParameter{TEXT("AuroraDLCConfig")};
+const FString FGFPakExporterModule::AuroraContentDLCCommandLineParameter{TEXT("AuroraDLCConfig")};
+const FString FGFPakExporterModule::AuroraBaseGameCommandLineParameter{TEXT("AuroraBaseGameConfig")};
 
 
 void FGFPakExporterModule::StartupModule()

@@ -78,67 +78,105 @@ bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettings()
 
     // Firstly, we look for the AuroraDLC parameter and ensure it is valid
     {
-        FString AuroraDLCSettingsPath;
-        if (!FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraCommandLineParameter + TEXT("=")), AuroraDLCSettingsPath))
+        FString Value;
+        if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraContentDLCCommandLineParameter + TEXT("=")), Value))
         {
-            UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No Aurora DLC Parameter '-%s=' found in the CommandLine"), *FGFPakExporterModule::AuroraCommandLineParameter)
-            return false;
+            const FString& AuroraDLCSettingsPath = Value;
+            return CheckCommandLineAndAdjustSettingsForContentDLC(CmdLine, AuroraDLCSettingsPath);
         }
-        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora DLC Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraCommandLineParameter, *AuroraDLCSettingsPath)
-        
-        ExporterSettings = {};
-        if (FPaths::FileExists(AuroraDLCSettingsPath))
+        else if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraBaseGameCommandLineParameter + TEXT("=")), Value))
         {
-            TOptional<FAuroraExporterSettings> Config = FAuroraExporterSettings::FromJsonSettings(AuroraDLCSettingsPath);
-            if (!Config)
-            {
-                UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Unable to load the Aurora DLC Config file '%s'"), *AuroraDLCSettingsPath)
-                return false;
-            }
-            ExporterSettings = Config.GetValue();
+            return CheckCommandLineAndAdjustSettingsForBaseGame(CmdLine, Value);
         }
-        else
-        {
-            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("The Settings File Path passed to Aurora DLC does not exist: '%s'"), *AuroraDLCSettingsPath)
-            return false;
-        }
-
-        // Read the Asset Registry Folder from the -BasedOnReleaseVersionRoot= param
-        if (!FParse::Value(*CmdLine, TEXT("BasedOnReleaseVersionRoot="), AssetRegistryFolder))
-        {
-            UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No '-BasedOnReleaseVersionRoot=' Parameter found in the CommandLine"))
-            return false;
-        }
-        UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Aurora DLC temporary AssetRegistry Path: '%s'"), *AssetRegistryFolder)
     }
 
-    // Then we make sure some of the Packaging Settings are set to what we expect
+    CookType = EAuroraCookType::NotAuroraCook;
+    UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No Aurora Content DLC '-%s=' or BaseGame '-%s' Parameter found in the CommandLine"),
+        *FGFPakExporterModule::AuroraContentDLCCommandLineParameter, *FGFPakExporterModule::AuroraBaseGameCommandLineParameter)
+    return false;
+}
+
+bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettingsForContentDLC(const FString& CmdLine, const FString& AuroraDLCSettingsPath)
+{
+    UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora DLC Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraContentDLCCommandLineParameter, *AuroraDLCSettingsPath)
+        
+    DLCExporterSettings = {};
+    if (FPaths::FileExists(AuroraDLCSettingsPath))
     {
-        UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Adjusting the Project Packaging Settings..."))
-        UProjectPackagingSettings* PackagingSettings = GetMutableDefault<UProjectPackagingSettings>();
-        if (!PackagingSettings->DirectoriesToAlwaysCook.IsEmpty())
+        TOptional<FAuroraContentDLCExporterSettings> Settings = FAuroraContentDLCExporterSettings::FromJsonSettings(AuroraDLCSettingsPath);
+        if (!Settings)
         {
-            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - DirectoriesToAlwaysCook will be emptied for this cook (contains %d directories)"), PackagingSettings->DirectoriesToAlwaysCook.Num())
-            PackagingSettings->DirectoriesToAlwaysCook.Empty(); // We want to be 100% in control about the directories we cook
+            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Unable to load the Aurora DLC Settings file '%s'"), *AuroraDLCSettingsPath)
+            return false;
         }
-        
-        if (PackagingSettings->bUseZenStore)
-        {
-            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - ZenStore is not yet compatible. It will be deactivated for this cook"))
-            PackagingSettings->bUseZenStore = false; // We want to be 100% in control
-        }
-        
-        UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Adjusting the Console Variables..."))
-        if (IConsoleVariable* CookAllVar = IConsoleManager::Get().FindConsoleVariable(TEXT("Cook.CookAllByDefault")))
-        {
-            if (CookAllVar->GetBool())
-            {
-                UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - 'Cook.CookAllByDefault' will be set to false for this cook"))
-                CookAllVar->Set(false);
-            }
-        }
+        DLCExporterSettings = Settings.GetValue();
+    }
+    else
+    {
+        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("The Settings File Path passed to Aurora DLC does not exist: '%s'"), *AuroraDLCSettingsPath)
+        return false;
+    }
+
+    // Read the Asset Registry Folder from the -BasedOnReleaseVersionRoot= param
+    if (!FParse::Value(*CmdLine, TEXT("BasedOnReleaseVersionRoot="), AssetRegistryFolder))
+    {
+        UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No '-BasedOnReleaseVersionRoot=' Parameter found in the CommandLine"))
+        return false;
+    }
+    UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Aurora DLC temporary AssetRegistry Path: '%s'"), *AssetRegistryFolder)
+
+    
+    // Then we make sure some of the Packaging Settings are set to what we expect
+    UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Adjusting the Project Packaging Settings..."))
+    UProjectPackagingSettings* PackagingSettings = GetMutableDefault<UProjectPackagingSettings>();
+    if (!PackagingSettings->DirectoriesToAlwaysCook.IsEmpty())
+    {
+        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - DirectoriesToAlwaysCook will be emptied for this cook (contains %d directories)"), PackagingSettings->DirectoriesToAlwaysCook.Num())
+        PackagingSettings->DirectoriesToAlwaysCook.Empty(); // We want to be 100% in control about the directories we cook
     }
     
+    if (PackagingSettings->bUseZenStore)
+    {
+        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - ZenStore is not yet compatible. It will be deactivated for this cook"))
+        PackagingSettings->bUseZenStore = false; // We want to be 100% in control
+    }
+    
+    UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Adjusting the Console Variables..."))
+    if (IConsoleVariable* CookAllVar = IConsoleManager::Get().FindConsoleVariable(TEXT("Cook.CookAllByDefault")))
+    {
+        if (CookAllVar->GetBool())
+        {
+            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT(" - 'Cook.CookAllByDefault' will be set to false for this cook"))
+            CookAllVar->Set(false);
+        }
+    }
+
+    CookType = EAuroraCookType::AuroraContentDLC;
+    return true;
+}
+
+bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettingsForBaseGame(const FString& CmdLine, const FString& AuroraSettings)
+{
+    UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora Base Game Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraBaseGameCommandLineParameter, *AuroraSettings)
+        
+    BaseGameExporterSettings = {};
+    if (FPaths::FileExists(AuroraSettings))
+    {
+        TOptional<FAuroraBaseGameExporterSettings> Settings = FAuroraBaseGameExporterSettings::FromJsonSettings(AuroraSettings);
+        if (!Settings)
+        {
+            UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Unable to load the Aurora Base Game Settings file '%s'"), *AuroraSettings)
+            return false;
+        }
+        BaseGameExporterSettings = Settings.GetValue();
+    }
+    else
+    {
+        UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("The Settings File Path passed to Aurora Base Game does not exist: '%s'"), *AuroraSettings)
+        return false;
+    }
+    
+    CookType = EAuroraCookType::AuroraBaseGame;
     return true;
 }
 
@@ -166,18 +204,67 @@ void FGFPakExporterCommandletModule::CreateAssetManager()
         GEngine->AssetManager->StartInitialLoading();
     }
 
-    // Add a delegate to create the Asset Registry when we are sure that the project Asset Registry is fully loaded
-    AssetManager->OnModifyDLCCookDelegate.AddLambda([](const FString& DLCName, TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook)
+    if (CookType == EAuroraCookType::AuroraBaseGame)
     {
-        if (FGFPakExporterCommandletModule* This = GetPtr())
+        AssetManager->OnModifyCookDelegate.AddLambda([](TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook)
         {
-            TArray<FSoftObjectPath> Assets = This->CreateTemporaryAssetRegistry();
-            for (const FSoftObjectPath& Asset :Assets)
+            if (FGFPakExporterCommandletModule* This = GetPtr())
             {
-                PackagesToCook.Add(Asset.GetLongPackageFName());
+                TSet<FName> PackagesToAdd {FGFPakExporterModule::GetAssetDependencies(This->AdditionalPackagesToCook.Array())};
+                while (PackagesToAdd.Num() > 0)
+                {
+                    FName PackageToAdd = *PackagesToAdd.begin();
+                    PackagesToAdd.Remove(PackageToAdd);
+                    if (!This->AdditionalPackagesToCook.Contains(PackageToAdd))
+                    {
+                        This->AdditionalPackagesToCook.Add(PackageToAdd);
+                        const TArray<FName> DependentPackageNames = FGFPakExporterModule::GetAssetDependencies({PackageToAdd});
+                        PackagesToAdd.Append(DependentPackageNames);
+                    }
+                }
+                
+                PackagesToCook.Append(This->AdditionalPackagesToCook.Array());
+                PackagesToNeverCook.Append(This->AdditionalPackagesToNeverCook.Array());
+                PackagesToNeverCook.RemoveAll([&PackagesToCook](const FName& PackageName)
+                {
+                    return PackagesToCook.Contains(PackageName);
+                });
             }
-        }
-    });
+        });
+        AssetManager->OnGetPackageCookRule.BindLambda([](EPrimaryAssetCookRule CurrentCookRule, FName PackageName)
+        {
+            if (FGFPakExporterCommandletModule* This = GetPtr())
+            {
+                FAuroraBaseGameExporterConfig::EAssetExportRule ExportRule = This->BaseGameExporterSettings.Config.GetAssetExportRule(PackageName);
+                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Include || This->AdditionalPackagesToCook.Contains(PackageName))
+                {
+                    This->AdditionalPackagesToCook.Add(PackageName);
+                    return EPrimaryAssetCookRule::AlwaysCook;
+                }
+                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Exclude || This->AdditionalPackagesToNeverCook.Contains(PackageName))
+                {
+                    //todo: might not work properly with Cook All
+                    return EPrimaryAssetCookRule::Unknown; // We cannot return `NeverCook` as the asset might be referenced by another asset.
+                }
+            }
+            return CurrentCookRule;
+        });
+    }
+    else if (CookType == EAuroraCookType::AuroraContentDLC)
+    {
+        // Add a delegate to create the Asset Registry when we are sure that the project Asset Registry is fully loaded
+        AssetManager->OnModifyDLCCookDelegate.AddLambda([](const FString& DLCName, TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook)
+        {
+            if (FGFPakExporterCommandletModule* This = GetPtr())
+            {
+                TArray<FSoftObjectPath> Assets = This->CreateTemporaryAssetRegistry();
+                for (const FSoftObjectPath& Asset :Assets)
+                {
+                    PackagesToCook.Add(Asset.GetLongPackageFName());
+                }
+            }
+        });
+    }
 }
 
 TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegistry()
@@ -197,7 +284,7 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
     UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("Enumerate Assets..."))
     PluginAssetRegistry.EnumerateAllAssets({}, [this, &Assets](const FAssetData& AssetData)
     {
-        if (ExporterSettings.Config.ShouldExportAsset(AssetData))
+        if (DLCExporterSettings.Config.ShouldExportAsset(AssetData))
         {
             UE_LOG(LogGFPakExporterCommandlet, Display, TEXT(" - ShouldExportAsset: '%s'"), *AssetData.GetObjectPathString())
             Assets.AddUnique(AssetData.GetSoftObjectPath());
@@ -205,7 +292,7 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
         return true;
     });
 
-    if (ExporterSettings.Config.bIncludeHardReferences)
+    if (DLCExporterSettings.Config.bIncludeHardReferences)
     {
         TArray<FName> DependentPackageNames = FGFPakExporterModule::GetAssetDependencies(Assets);
         for (const FName& PackageName : DependentPackageNames)
