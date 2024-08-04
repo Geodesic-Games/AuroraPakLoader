@@ -6,11 +6,12 @@
 #include "GFPakExporterLog.h"
 #include "JsonObjectConverter.h"
 #include "PluginUtils.h"
+#include "Algo/MaxElement.h"
 
 
-// -- FAuroraDLCExporterConfig
+// -- FAuroraContentDLCExporterConfig
 
-bool FAuroraDLCExporterConfig::HasValidDLCName() const
+bool FAuroraContentDLCExporterConfig::HasValidDLCName() const
 {
 	if (DLCName.IsEmpty())
 	{
@@ -18,24 +19,30 @@ bool FAuroraDLCExporterConfig::HasValidDLCName() const
 	}
 	FString PotentialPath = DLCName;
 	FPaths::NormalizeDirectoryName(PotentialPath);
-	FString Leaf = FPaths::GetPathLeaf(PotentialPath);
+	const FString Leaf = FPaths::GetPathLeaf(PotentialPath);
 	return Leaf == DLCName && !DLCName.Contains(TEXT("."));
 }
 
-bool FAuroraDLCExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
+bool FAuroraContentDLCExporterConfig::ShouldExportAsset(const FAssetData& AssetData) const
 {
-	if (Assets.Contains(AssetData.GetSoftObjectPath()))
+	const FName& PackageName = AssetData.PackageName;
+
+	// Some packages (like blueprints) might contains multiple assets, but we need to make sure all the assets from the package would be exported
+	if (Assets.ContainsByPredicate([&PackageName](const FSoftObjectPath& Asset)
+		{
+			return Asset.GetLongPackageFName() == PackageName;
+		}))
 	{
 		return true;
 	}
 	
-	return PackagePaths.ContainsByPredicate([&AssetData](const FAuroraDirectoryPath& ContentFolder)
+	return PackagePaths.ContainsByPredicate([PackageNameStr = PackageName.ToString()](const FAuroraDirectoryPath& ContentFolder)
 	{
-		return FPaths::IsUnderDirectory(AssetData.PackagePath.ToString(), ContentFolder.Path);
+		return !ContentFolder.Path.IsEmpty() && FPaths::IsUnderDirectory(PackageNameStr, ContentFolder.Path);
 	});
 }
 
-FString FAuroraDLCExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const
+FString FAuroraContentDLCExporterConfig::GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const
 {
 	// Here we are trying the get the common path between all the assets, and return the name of the common folder containing all these assets
 	TArray<FString> StartPath;
@@ -122,16 +129,16 @@ FString FAuroraDLCExporterConfig::GetDefaultDLCNameBasedOnContent(const FString&
 	return StartPath.IsEmpty() ? FallbackName : StartPath.Last();
 }
 
-TOptional<FAuroraDLCExporterConfig> FAuroraDLCExporterConfig::FromPluginName(const FString& InPluginName)
+TOptional<FAuroraContentDLCExporterConfig> FAuroraContentDLCExporterConfig::FromPluginName(const FString& InPluginName)
 {
 	if (FPluginUtils::IsValidPluginName(InPluginName))
 	{
-		FAuroraDLCExporterConfig Config;
+		FAuroraContentDLCExporterConfig Config;
 		Config.DLCName = InPluginName;
 		Config.PackagePaths.Add(FAuroraDirectoryPath{TEXT("/") + InPluginName});
 		return Config;
 	}
-	return TOptional<FAuroraDLCExporterConfig>{};
+	return TOptional<FAuroraContentDLCExporterConfig>{};
 }
 
 
@@ -139,8 +146,7 @@ TOptional<FAuroraDLCExporterConfig> FAuroraDLCExporterConfig::FromPluginName(con
 
 FAuroraBaseGameExporterConfig::EAssetExportRule FAuroraBaseGameExporterConfig::GetAssetExportRule(FName PackageName) const
 {
-	const FSoftObjectPath ObjectPath{PackageName.ToString()};
-	
+	// Firstly, if we are specifically referencing an asset, we can return the ExportRule directly
 	if (AssetsToInclude.ContainsByPredicate([&PackageName](const FSoftObjectPath& Asset)
 		{
 			return Asset.GetLongPackageFName() == PackageName;
@@ -156,30 +162,38 @@ FAuroraBaseGameExporterConfig::EAssetExportRule FAuroraBaseGameExporterConfig::G
 	{
 		return EAssetExportRule::Exclude;
 	}
-	
-	const bool bIncludedInPath = PackagePathsToInclude.ContainsByPredicate([&PackageName](const FAuroraDirectoryPath& ContentFolder)
+
+	// If not, an asset might be indirectly referenced by both the PackagePathsTo*Include* and PackagePathsTo*Exclude*
+	// Ex: Include: /Game/Maps   Exclude: /Game/Maps/Folder/
+	// If that is the case, the most specific one should win, which is also the longest path. If they are the same, the asset will be included
+	const FAuroraDirectoryPath* MostSpecificInclude = Algo::MaxElementBy(PackagePathsToInclude, [&PackageName](const FAuroraDirectoryPath& ContentFolder)
 	{
-		return FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path);
+		return !ContentFolder.Path.IsEmpty() && FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path) ?
+			ContentFolder.Path.Len() : 0;
 	});
-	if (bIncludedInPath)
+	const int MostSpecificIncludeLength = MostSpecificInclude ? MostSpecificInclude->Path.Len() : 0;
+	
+	const FAuroraDirectoryPath* MostSpecificExclude = Algo::MaxElementBy(PackagePathsToExclude, [&PackageName](const FAuroraDirectoryPath& ContentFolder)
+	{
+		return !ContentFolder.Path.IsEmpty() && FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path) ?
+			ContentFolder.Path.Len() : 0;
+	});
+	const int MostSpecificExcludeLength = MostSpecificExclude ? MostSpecificExclude->Path.Len() : 0;
+	
+	if (MostSpecificIncludeLength > 0 && MostSpecificIncludeLength >= MostSpecificExcludeLength)
 	{
 		return EAssetExportRule::Include;
 	}
-
-	const bool bExcludedInPath = PackagePathsToExclude.ContainsByPredicate([&PackageName](const FAuroraDirectoryPath& ContentFolder)
-	{
-		return FPaths::IsUnderDirectory(PackageName.ToString(), ContentFolder.Path);
-	});
-	if (bExcludedInPath)
+	if (MostSpecificExcludeLength > 0)
 	{
 		return EAssetExportRule::Exclude;
 	}
-
+	
 	return EAssetExportRule::Unknown;
 }
 
 
-// --- FAuroraDLCExporterSettings
+// --- FAuroraContentDLCExporterSettings
 
 bool FAuroraContentDLCExporterSettings::LoadJsonSettings(const TSharedPtr<FJsonObject>& JsonObject)
 {
@@ -197,19 +211,19 @@ bool FAuroraContentDLCExporterSettings::LoadJsonSettings(const FString& InJsonPa
 	{
 		return false;
 	}
-	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); // For Game builds to debug Sandbox File Paths
-	FString DebugAdjusted = InJsonPath == Filename ? FString{} : FString::Printf(TEXT(" (adjusted to '%s')"), *Filename);
+	const FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); // For Game builds to debug Sandbox File Paths
+	const FString DebugAdjusted = InJsonPath == Filename ? FString{} : FString::Printf(TEXT(" (adjusted to '%s')"), *Filename);
 
 	if (!FPaths::FileExists(Filename))
 	{
-		UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Json Configuration file '%s'%s not found."), *InJsonPath, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraContentDLCExporterSettings::LoadJsonConfig: Json Configuration file '%s'%s not found."), *InJsonPath, *DebugAdjusted);
 		return false;
 	}
 
 	FString InJsonString;
 	if (!FFileHelper::LoadFileToString(InJsonString, *Filename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Couldn't read file: '%s'%s"), *Filename, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraContentDLCExporterSettings::LoadJsonConfig: Couldn't read file: '%s'%s"), *Filename, *DebugAdjusted);
 		return false;
 	}
 
@@ -217,11 +231,11 @@ bool FAuroraContentDLCExporterSettings::LoadJsonSettings(const FString& InJsonPa
 	const TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(InJsonString);
 	if (!FJsonSerializer::Deserialize(JsonReader, JsonRoot))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Couldn't parse json data from file: '%s'%s"), *Filename, *DebugAdjusted);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraContentDLCExporterSettings::LoadJsonConfig: Couldn't parse json data from file: '%s'%s"), *Filename, *DebugAdjusted);
 		return false;
 	}
 
-	UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraDLCExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
+	UE_LOG(LogGFPakExporter, Verbose, TEXT("FAuroraContentDLCExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
 	SettingsFilePath.FilePath = InJsonPath;
 	return LoadJsonSettings(JsonRoot);
 }
@@ -243,12 +257,12 @@ bool FAuroraContentDLCExporterSettings::SaveJsonSettings(const FString& InJsonPa
 	{
 		return false;
 	}
-	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); //For Game builds to debug Sandbox File Paths
+	const FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); //For Game builds to debug Sandbox File Paths
 	
 	const TSharedPtr<FJsonObject> JsonRoot = MakeShared<FJsonObject>();
 	if (!SaveJsonSettings(JsonRoot))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't save the config to JSON: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraContentDLCExporterSettings::SaveJsonConfig: Couldn't save the config to JSON: '%s'"), *Filename);
 		return false;
 	}
 	
@@ -256,13 +270,13 @@ bool FAuroraContentDLCExporterSettings::SaveJsonSettings(const FString& InJsonPa
 	const TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutJsonString);
 	if (!FJsonSerializer::Serialize(JsonRoot.ToSharedRef(), Writer))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't serialize the Json to file: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraContentDLCExporterSettings::SaveJsonConfig: Couldn't serialize the Json to file: '%s'"), *Filename);
 		return false;
 	}
 
 	if (!FFileHelper::SaveStringToFile(OutJsonString, *Filename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraDLCExporterSettings::SaveJsonConfig: Couldn't save to file: '%s'"), *Filename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("FAuroraContentDLCExporterSettings::SaveJsonConfig: Couldn't save to file: '%s'"), *Filename);
 		return false;
 	}
 
@@ -288,8 +302,8 @@ bool FAuroraBaseGameExporterSettings::LoadJsonSettings(const FString& InJsonPath
 	{
 		return false;
 	}
-	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); // For Game builds to debug Sandbox File Paths
-	FString DebugAdjusted = InJsonPath == Filename ? FString{} : FString::Printf(TEXT(" (adjusted to '%s')"), *Filename);
+	const FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); // For Game builds to debug Sandbox File Paths
+	const FString DebugAdjusted = InJsonPath == Filename ? FString{} : FString::Printf(TEXT(" (adjusted to '%s')"), *Filename);
 
 	if (!FPaths::FileExists(Filename))
 	{
@@ -312,7 +326,7 @@ bool FAuroraBaseGameExporterSettings::LoadJsonSettings(const FString& InJsonPath
 		return false;
 	}
 
-	UE_LOG(LogGFPakExporter, Log, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
+	UE_LOG(LogGFPakExporter, Verbose, TEXT("FAuroraBaseGameExporterSettings::LoadJsonConfig: Loading from file: '%s'%s"), *Filename, *DebugAdjusted);
 	SettingsFilePath.FilePath = InJsonPath;
 	return LoadJsonSettings(JsonRoot);
 }
@@ -334,7 +348,7 @@ bool FAuroraBaseGameExporterSettings::SaveJsonSettings(const FString& InJsonPath
 	{
 		return false;
 	}
-	FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); //For Game builds to debug Sandbox File Paths
+	const FString Filename = IFileManager::Get().ConvertToAbsolutePathForExternalAppForRead(*InJsonPath); //For Game builds to debug Sandbox File Paths
 	
 	const TSharedPtr<FJsonObject> JsonRoot = MakeShared<FJsonObject>();
 	if (!SaveJsonSettings(JsonRoot))

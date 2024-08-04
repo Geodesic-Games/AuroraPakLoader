@@ -4,7 +4,7 @@
 
 #include "AuroraSaveFilePath.h"
 #include "AssetRegistry/AssetRegistryModule.h"
-#include "ContextMenu/GFPakExporterContentBrowserContextMenu.h"
+#include "ContextMenu/GFPakExporterContextMenu.h"
 #include "DetailsViewCustomization/AuroraDirectoryPathStructCustomization.h"
 #include "DetailsViewCustomization/AuroraSaveFilePathStructCustomization.h"
 
@@ -25,7 +25,7 @@ void FGFPakExporterModule::StartupModule()
 		RegisterPropertyTypeCustomizations();
 		
 		// Create the asset menu instances
-		ContentBrowserContextMenu = MakeShared<FGFPakExporterContentBrowserContextMenu>();
+		ContentBrowserContextMenu = MakeShared<FGFPakExporterContextMenu>();
 		ContentBrowserContextMenu->Initialize();
 
 		//todo: check FPluginBrowserModule::Get().GetCustomizePluginEditingDelegates() to add to the plugin's edit menu

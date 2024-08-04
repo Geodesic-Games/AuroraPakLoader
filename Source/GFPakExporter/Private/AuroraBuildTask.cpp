@@ -13,7 +13,7 @@ class FMainFrameActionsNotificationTask // As per UATHelperModule.cpp
 {
 public:
 
-	FMainFrameActionsNotificationTask(TWeakPtr<SNotificationItem> InNotificationItemPtr, SNotificationItem::ECompletionState InCompletionState, const FText& InText, const FText& InLinkText = FText(), bool InExpireAndFadeout = true)
+	FMainFrameActionsNotificationTask(const TWeakPtr<SNotificationItem>& InNotificationItemPtr, SNotificationItem::ECompletionState InCompletionState, const FText& InText, const FText& InLinkText = FText(), bool InExpireAndFadeout = true)
 		: CompletionState(InCompletionState)
 		, NotificationItemPtr(InNotificationItemPtr)
 		, Text(InText)
@@ -204,8 +204,8 @@ void FAuroraBuildTask::HandleStageStarted(const FString& InStage)
 	if (ensure(LauncherWorker))
 	{
 		TArray<ILauncherTaskPtr> TaskList;
-		int NbTasks = LauncherWorker->GetTasks(TaskList);
-		int CurrentTask = 1 + TaskList.IndexOfByPredicate([](const ILauncherTaskPtr& Task)
+		const int NbTasks = LauncherWorker->GetTasks(TaskList);
+		const int CurrentTask = 1 + TaskList.IndexOfByPredicate([](const ILauncherTaskPtr& Task)
 		{
 			return Task->GetStatus() != ELauncherTaskStatus::Completed;
 		});
@@ -235,7 +235,9 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 				NotificationItemPtr,
 				SNotificationItem::CS_Success,
-				FText::Format(LOCTEXT("UatProcessSucceededNotification", "'{0}' complete!"), FText::FromString(DLCSettings.Config.DLCName))
+				IsBaseGameBuildTask() ?
+					LOCTEXT("Notification_Title_BaseGame_Complete", "Aurora Project Packaging failed!") :
+					FText::Format(LOCTEXT("Notification_Title_DLC_Complete", "Aurora DLC Packaging '{0}' complete!"), FText::FromString(DLCSettings.Config.DLCName))
 			);
 			Status = ELauncherTaskStatus::Completed;
 		}
@@ -244,7 +246,9 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 				NotificationItemPtr,
 				SNotificationItem::CS_Fail,
-				FText::Format(LOCTEXT("PackagerFailedNotification", "'{0}' failed!"), FText::FromString(DLCSettings.Config.DLCName)),
+				IsBaseGameBuildTask() ?
+					LOCTEXT("Notification_Title_BaseGame_Fail", "Aurora Project Packaging failed!") :
+					FText::Format(LOCTEXT("Notification_Title_DLC_Fail", "Aurora DLC Packaging '{0}' failed!"), FText::FromString(DLCSettings.Config.DLCName)),
 				FText(),
 				false);
 			Status = ELauncherTaskStatus::Failed;
@@ -261,7 +265,9 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 		TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 			NotificationItemPtr,
 			SNotificationItem::CS_Fail,
-			FText::Format(LOCTEXT("UatProcessFailedNotification", "'{0}' canceled!"), FText::FromString(DLCSettings.Config.DLCName))
+			IsBaseGameBuildTask() ?
+					LOCTEXT("Notification_Title_BaseGame_Cancel", "Aurora Project Packaging canceled!") :
+					FText::Format(LOCTEXT("Notification_Title_DLC_Cancel", "Aurora DLC Packaging '{0}' canceled!"), FText::FromString(DLCSettings.Config.DLCName))
 		);
 		Status = ELauncherTaskStatus::Pending;
 	}
@@ -269,7 +275,7 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 
 bool FAuroraBuildTask::CreateNotification()
 {
-	FText DLCName = FText::FromString(DLCSettings.Config.DLCName);
+	const FText DLCName = FText::FromString(DLCSettings.Config.DLCName);
 	{
 		FScopeLock Lock(&NotificationTextMutex);
 		NotificationText = FText::GetEmpty();
@@ -302,7 +308,13 @@ bool FAuroraBuildTask::CreateNotification()
 		FNotificationButtonInfo(
 			LOCTEXT("UatTaskDismiss", "Dismiss"),
 			FText(),
-			FSimpleDelegate::CreateSP(this, &FAuroraBuildTask::HandleNotificationDismissButtonClicked),
+			FSimpleDelegate::CreateLambda([SharedThis = AsShared().ToSharedPtr()]() // We want to keep the task alive with the notification
+			{
+				if (SharedThis)
+				{
+					SharedThis->HandleNotificationDismissButtonClicked();
+				}
+			}),
 			SNotificationItem::CS_Fail
 		)
 	);

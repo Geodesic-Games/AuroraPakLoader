@@ -265,7 +265,9 @@ FReply SAuroraExportWizard::HandleCancelButtonClicked()
 
 bool SAuroraExportWizard::HandleIsPropertyFromConfigVisible(const FPropertyAndParent& InPropertyAndParent)
 {
-	FName ConfigProperty = GET_MEMBER_NAME_CHECKED(FAuroraContentDLCExporterSettings, Config);
+	FName ConfigProperty = IsBaseGameExport() ?
+		GET_MEMBER_NAME_CHECKED(FAuroraBaseGameExporterSettings, Config) :
+		GET_MEMBER_NAME_CHECKED(FAuroraContentDLCExporterSettings, Config);
 	return ConfigProperty == InPropertyAndParent.Property.GetFName() ||
 		InPropertyAndParent.ParentProperties.ContainsByPredicate(
 			[&ConfigProperty](const FProperty* Prop) { return Prop->GetFName() == ConfigProperty; });

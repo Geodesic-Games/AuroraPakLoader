@@ -5,7 +5,7 @@
 #include "CoreMinimal.h"
 #include "Modules/ModuleManager.h"
 
-class FGFPakExporterContentBrowserContextMenu;
+class FGFPakExporterContextMenu;
 
 class GFPAKEXPORTER_API FGFPakExporterModule : public IModuleInterface
 {
@@ -44,7 +44,7 @@ public:
     static TArray<FName> GetAssetDependencies(const TArray<FName>& PackageNames);
 private:
     /** Holds our context menu handler */
-    TSharedPtr<FGFPakExporterContentBrowserContextMenu> ContentBrowserContextMenu;
+    TSharedPtr<FGFPakExporterContextMenu> ContentBrowserContextMenu;
 
     static void RegisterPropertyTypeCustomizations();
     static void UnregisterPropertyTypeCustomizations();

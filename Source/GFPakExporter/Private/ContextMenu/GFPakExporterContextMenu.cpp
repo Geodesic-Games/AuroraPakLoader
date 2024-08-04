@@ -1,34 +1,31 @@
 ﻿// Copyright GeoTech BV
 
-#include "GFPakExporterContentBrowserContextMenu.h"
+#include "GFPakExporterContextMenu.h"
 
 #include "AuroraExporterSettings.h"
 #include "ContentBrowserAssetDataCore.h"
 #include "ContentBrowserAssetDataPayload.h"
 #include "ContentBrowserDataMenuContexts.h"
-#include "GFPakExporter.h"
 #include "GFPakExporterLog.h"
 #include "GFPakExporterSubsystem.h"
 #include "IContentBrowserSingleton.h"
-#include "ILauncherServicesModule.h"
-#include "ITargetDeviceServicesModule.h"
 #include "Interfaces/IPluginManager.h"
 
 
 #define LOCTEXT_NAMESPACE "FGFPakExporterModule"
 
 
-void FGFPakExporterContentBrowserContextMenu::Initialize()
+void FGFPakExporterContextMenu::Initialize()
 {
 	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContentBrowserContextMenu::Initialize - ..."));
-	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateSP(this, &FGFPakExporterContentBrowserContextMenu::RegisterMenus));
+	UToolMenus::RegisterStartupCallback(FSimpleMulticastDelegate::FDelegate::CreateSP(this, &FGFPakExporterContextMenu::RegisterMenus));
 }
 
-void FGFPakExporterContentBrowserContextMenu::Shutdown()
+void FGFPakExporterContextMenu::Shutdown()
 {
 }
 
-void FGFPakExporterContentBrowserContextMenu::RegisterMenus()
+void FGFPakExporterContextMenu::RegisterMenus()
 {
 	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContentBrowserContextMenu::RegisterMenus"));
 
@@ -37,7 +34,7 @@ void FGFPakExporterContentBrowserContextMenu::RegisterMenus()
 		Menu->AddDynamicSection(TEXT("DynamicSection_GFPakExporter_ContextMenu_Folder"),
 			FNewToolMenuDelegate::CreateLambda([WeakThis = AsWeak()](UToolMenu* InMenu)
 		{
-			if (const TSharedPtr<FGFPakExporterContentBrowserContextMenu> This = WeakThis.Pin())
+			if (const TSharedPtr<FGFPakExporterContextMenu> This = WeakThis.Pin())
 			{
 				constexpr bool bIsAssetMenu = false;
 				This->PopulateContextMenu(InMenu, bIsAssetMenu);
@@ -50,7 +47,7 @@ void FGFPakExporterContentBrowserContextMenu::RegisterMenus()
 		Menu->AddDynamicSection(TEXT("DynamicSection_GFPakExporter_ContextMenu_Asset"),
 			FNewToolMenuDelegate::CreateLambda([WeakThis = AsWeak()](UToolMenu* InMenu)
 		{
-			if (const TSharedPtr<FGFPakExporterContentBrowserContextMenu> This = WeakThis.Pin())
+			if (const TSharedPtr<FGFPakExporterContextMenu> This = WeakThis.Pin())
 			{
 				constexpr bool bIsAssetMenu = true;
 				This->PopulateContextMenu(InMenu, bIsAssetMenu);
@@ -58,25 +55,25 @@ void FGFPakExporterContentBrowserContextMenu::RegisterMenus()
 		}));
 	}
 
+	// Platforms dropdown menu
 	if (UToolMenu* Menu = UToolMenus::Get()->ExtendMenu("UnrealEd.PlayWorldCommands.PlatformsMenu"))
 	{
-		// FToolMenuInsert Insert{}
 		FToolMenuSection& Section = Menu->AddSection(TEXT("GFPakExporterActions"), LOCTEXT("GFPakExporterActionsMenuHeading", "Aurora"));
-		FToolMenuEntry& SectionMenu = Section.AddMenuEntry(
+		Section.AddMenuEntry(
 			TEXT("GFPakExporter_CreateBaseGame_MenuName"),
 			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntry", "Create a Packaged Project"),
 			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntryTooltip", "Create a Base Game Packaged Project."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
-			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction),
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContextMenu::ExecuteCreateBaseGameAction),
 				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
 			)
 		);
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InMenu, bool bIsAssetMenu) const
+void FGFPakExporterContextMenu::PopulateContextMenu(UToolMenu* InMenu, bool bIsAssetMenu) const
 {
-	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContentBrowserContextMenu::PopulateAssetFolderContextMenu - InMenu: %s  IsAssetMenu? %s"),
+	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContextMenu::PopulateAssetFolderContextMenu - InMenu: %s  IsAssetMenu? %s"),
 		*GetNameSafe(InMenu), bIsAssetMenu ? TEXT("True") : TEXT("False"));
 	check(InMenu);
 	
@@ -85,7 +82,7 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 	TArray<FSoftObjectPath> SelectedAssets;
 	GetSelectedFilesAndFolders(InMenu, SelectedPackagePaths, SelectedAssets);
 
-	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContentBrowserContextMenu::PopulateAssetFolderContextMenu - Result ..."));
+	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContextMenu::PopulateAssetFolderContextMenu - Result ..."));
 	UE_LOG(LogGFPakExporter, Verbose, TEXT("\tSelectedPackagePaths: %d"), SelectedPackagePaths.Num());
 	for (const FString& SelectedPackagePath : SelectedPackagePaths)
 	{
@@ -98,7 +95,7 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 		UE_LOG(LogGFPakExporter, Verbose, TEXT("\t- %s"), *SelectedAsset.ToString());
 	}
 	
-	FAuroraDLCExporterConfig DLCConfig;
+	FAuroraContentDLCExporterConfig DLCConfig;
 	Algo::Transform(SelectedPackagePaths, DLCConfig.PackagePaths, [](const FString& Path){ return FAuroraDirectoryPath{Path}; });
 	DLCConfig.Assets = SelectedAssets;
 	
@@ -115,13 +112,13 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 			const FContentBrowserItemData* SelectedItemData = SelectedItem.GetPrimaryInternalItem();
 			if (!SelectedItemData)
 			{
-				return;
+				continue;
 			}
 
 			const UContentBrowserDataSource* DataSource = SelectedItemData->GetOwnerDataSource();
 			if (!DataSource)
 			{
-				return;
+				continue;
 			}
 			
 			for (const FContentBrowserItemData& InternalItems : SelectedItem.GetInternalItems())
@@ -153,12 +150,12 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 
 	if (bAddCreateGamePakMenu)
 	{
-		FToolMenuEntry& Menu = Section.AddMenuEntry(
+		Section.AddMenuEntry(
 			TEXT("GFPakExporter_CreateBaseGame_MenuName"),
 			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntry", "Create a Packaged Project"),
 			LOCTEXT("GFPakExporter_CreateBaseGame_MenuEntryTooltip", "Create a Base Game Packaged Project."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
-			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction),
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContextMenu::ExecuteCreateBaseGameAction),
 				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
 			)
 		);
@@ -166,21 +163,21 @@ void FGFPakExporterContentBrowserContextMenu::PopulateContextMenu(UToolMenu* InM
 	
 	if (bAddCreateDLCPakMenu)
 	{
-		FToolMenuEntry& Menu = Section.AddMenuEntry(
+		Section.AddMenuEntry(
 			TEXT("GFPakExporter_CreateDLC_MenuName"),
 			LOCTEXT("GFPakExporter_CreateDLC_MenuEntry", "Create a Content DLC Pak"),
 			LOCTEXT("GFPakExporter_CreateDLC_MenuEntryTooltip", "Create a cooked DLC Pak of the selected Content."),
 			FSlateIcon(FAppStyle::GetAppStyleSetName(), "Icons.Save"),
-			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction, DLCConfig),
+			FUIAction(FExecuteAction::CreateStatic(&FGFPakExporterContextMenu::ExecuteCreateAuroraContentDLCAction, DLCConfig),
 				FCanExecuteAction::CreateLambda([]() { return IsValid(UGFPakExporterSubsystem::Get()); })
 			)
 		);
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::GetSelectedFilesAndFolders(const UToolMenu* InMenu, TArray<FString>& OutSelectedPackagePaths, TArray<FSoftObjectPath>& OutSelectedAssets)
+void FGFPakExporterContextMenu::GetSelectedFilesAndFolders(const UToolMenu* InMenu, TArray<FString>& OutSelectedPackagePaths, TArray<FSoftObjectPath>& OutSelectedAssets)
 {
-	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContentBrowserContextMenu::GetSelectedFilesAndFolders - InMenu: %s"), *GetNameSafe(InMenu));
+	UE_LOG(LogGFPakExporter, Verbose, TEXT("FGFPakExporterContextMenu::GetSelectedFilesAndFolders - InMenu: %s"), *GetNameSafe(InMenu));
 	check(InMenu);
 	
 	auto AddSelectedItem = [&OutSelectedPackagePaths, &OutSelectedAssets](const FContentBrowserItem& SelectedItem)
@@ -226,7 +223,7 @@ void FGFPakExporterContentBrowserContextMenu::GetSelectedFilesAndFolders(const U
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction()
+void FGFPakExporterContextMenu::ExecuteCreateBaseGameAction()
 {
 	if (UGFPakExporterSubsystem* Subsystem = UGFPakExporterSubsystem::Get())
 	{
@@ -234,7 +231,7 @@ void FGFPakExporterContentBrowserContextMenu::ExecuteCreateBaseGameAction()
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCAction(FAuroraDLCExporterConfig InConfig)
+void FGFPakExporterContextMenu::ExecuteCreateAuroraContentDLCAction(FAuroraContentDLCExporterConfig InConfig)
 {
 	if (UGFPakExporterSubsystem* Subsystem = UGFPakExporterSubsystem::Get())
 	{
@@ -242,7 +239,7 @@ void FGFPakExporterContentBrowserContextMenu::ExecuteCreateAuroraContentDLCActio
 	}
 }
 
-void FGFPakExporterContentBrowserContextMenu::GetPluginsFromSelectedFilesAndFolders(const TArray<FString>& InSelectedPackagePaths, const TArray<FSoftObjectPath>& InSelectedAssets,
+void FGFPakExporterContextMenu::GetPluginsFromSelectedFilesAndFolders(const TArray<FString>& InSelectedPackagePaths, const TArray<FSoftObjectPath>& InSelectedAssets,
 	TArray<TSharedRef<IPlugin>>& OutSelectedPlugins, TArray<TSharedRef<IPlugin>>& OutAllPlugins)
 {
 	TSet<FString> MountPoints;

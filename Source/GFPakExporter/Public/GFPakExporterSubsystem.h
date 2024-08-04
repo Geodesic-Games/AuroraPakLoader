@@ -27,7 +27,7 @@ public:
 	
 	// DECLARE_DYNAMIC_DELEGATE_OneParam(FOnExportWizardCompleted, TOptional<FAuroraExporterSettings>, Settings)
 	// todo: what delegate to create for BP? and when?
-	void PromptForContentDLCExport(const FAuroraDLCExporterConfig& InConfig)
+	void PromptForContentDLCExport(const FAuroraContentDLCExporterConfig& InConfig)
 	{
 		PromptForContentDLCExport(FAuroraContentDLCExporterSettings{InConfig});
 	}

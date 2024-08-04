@@ -10,7 +10,7 @@
  * 
  */
 USTRUCT(Blueprintable)
-struct GFPAKEXPORTER_API FAuroraDLCExporterConfig
+struct GFPAKEXPORTER_API FAuroraContentDLCExporterConfig
 {
 	GENERATED_BODY()
 public:
@@ -54,7 +54,7 @@ public:
 	
 	FString GetDefaultDLCNameBasedOnContent(const FString& FallbackName) const;
 	
-	static TOptional<FAuroraDLCExporterConfig> FromPluginName(const FString& InPluginName);
+	static TOptional<FAuroraContentDLCExporterConfig> FromPluginName(const FString& InPluginName);
 };
 
 
@@ -171,11 +171,11 @@ public:
 	FAuroraContentDLCExporterSettings() = default;
 	FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterSettings&) = default;
 	
-	explicit FAuroraContentDLCExporterSettings(const FAuroraDLCExporterConfig& InConfig) : Config(InConfig) {}
+	explicit FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterConfig& InConfig) : Config(InConfig) {}
 	
 	/** The Configuration for the Export */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
-	FAuroraDLCExporterConfig Config;
+	FAuroraContentDLCExporterConfig Config;
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))
 	FAuroraBuildSettings BuildSettings;

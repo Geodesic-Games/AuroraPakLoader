@@ -142,7 +142,7 @@ FReply FAuroraDirectoryPathStructCustomization::OnPickContent(TSharedRef<IProper
 	
 	PathPickerConfig.bShowViewOptions = true;
 
-	FMenuBuilder MenuBuilder(true, NULL);
+	FMenuBuilder MenuBuilder(true, nullptr);
 	MenuBuilder.AddWidget(SNew(SBox)
 		.WidthOverride(300.0f)
 		.HeightOverride(300.0f)

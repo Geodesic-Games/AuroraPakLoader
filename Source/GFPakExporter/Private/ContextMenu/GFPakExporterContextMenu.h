@@ -2,14 +2,13 @@
 
 #pragma once
 
-#include "ILauncher.h"
 #include "Templates/SharedPointer.h"
 
-struct FAuroraDLCExporterConfig;
+struct FAuroraContentDLCExporterConfig;
 /**
  * 
  */
-class GFPAKEXPORTER_API FGFPakExporterContentBrowserContextMenu : public TSharedFromThis<FGFPakExporterContentBrowserContextMenu>
+class GFPAKEXPORTER_API FGFPakExporterContextMenu : public TSharedFromThis<FGFPakExporterContextMenu>
 {
 public:
 	void Initialize();
@@ -26,7 +25,7 @@ private:
 	static void GetSelectedFilesAndFolders(const UToolMenu* InMenu, TArray<FString>& OutSelectedPackagePaths, TArray<FSoftObjectPath>& OutSelectedAssets);
 
 	static void ExecuteCreateBaseGameAction();
-	static void ExecuteCreateAuroraContentDLCAction(FAuroraDLCExporterConfig InConfig);
+	static void ExecuteCreateAuroraContentDLCAction(FAuroraContentDLCExporterConfig InConfig);
 
 	/**
 	 * Return a the list of selected plugins out of the given Package and Asset Paths

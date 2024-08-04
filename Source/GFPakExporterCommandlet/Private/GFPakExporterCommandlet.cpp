@@ -36,7 +36,7 @@ void FGFPakExporterCommandletModule::StartupModule()
             // We need to create the AssetManager at the right time, after GEngine is created but before UE creates the default one
             OnRegisterEngineElementsDelegate.AddLambda([]()
             {
-                UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("OnRegisterEngineElementsDelegate"))
+                UE_LOG(LogGFPakExporterCommandlet, Verbose, TEXT("OnRegisterEngineElementsDelegate"))
                 if (FGFPakExporterCommandletModule* This = FGFPakExporterCommandletModule::GetPtr())
                 {
                     This->CreateAssetManager();
@@ -73,34 +73,35 @@ bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettings()
     // Sadly, the CookOnTheFlyServer uses its own local copy of the command line which is copied before any plugin is registered,
     // so we cannot just modify the command line to add the parameters we want: they will be disregarded by the cook.
     // The cook command need to include all required parameters.
+
+    const FString CmdLine = FCommandLine::Get();
     
-    FString CmdLine = FCommandLine::Get();
+    DLCExporterSettings = {};
+    BaseGameExporterSettings = {};
 
     // Firstly, we look for the AuroraDLC parameter and ensure it is valid
+    FString SettingsPath;
+    if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraContentDLCCommandLineParameter + TEXT("=")), SettingsPath))
     {
-        FString Value;
-        if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraContentDLCCommandLineParameter + TEXT("=")), Value))
-        {
-            const FString& AuroraDLCSettingsPath = Value;
-            return CheckCommandLineAndAdjustSettingsForContentDLC(CmdLine, AuroraDLCSettingsPath);
-        }
-        else if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraBaseGameCommandLineParameter + TEXT("=")), Value))
-        {
-            return CheckCommandLineAndAdjustSettingsForBaseGame(CmdLine, Value);
-        }
+        return CheckCommandLineAndAdjustSettingsForContentDLC(CmdLine, SettingsPath);
     }
-
+    else if (FParse::Value(*CmdLine, *(FGFPakExporterModule::AuroraBaseGameCommandLineParameter + TEXT("=")), SettingsPath))
+    {
+        return CheckCommandLineAndAdjustSettingsForBaseGame(CmdLine, SettingsPath);
+    }
+    
     CookType = EAuroraCookType::NotAuroraCook;
+    
     UE_LOG(LogGFPakExporterCommandlet, Display, TEXT("No Aurora Content DLC '-%s=' or BaseGame '-%s' Parameter found in the CommandLine"),
         *FGFPakExporterModule::AuroraContentDLCCommandLineParameter, *FGFPakExporterModule::AuroraBaseGameCommandLineParameter)
+    
     return false;
 }
 
 bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettingsForContentDLC(const FString& CmdLine, const FString& AuroraDLCSettingsPath)
 {
     UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora DLC Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraContentDLCCommandLineParameter, *AuroraDLCSettingsPath)
-        
-    DLCExporterSettings = {};
+    
     if (FPaths::FileExists(AuroraDLCSettingsPath))
     {
         TOptional<FAuroraContentDLCExporterSettings> Settings = FAuroraContentDLCExporterSettings::FromJsonSettings(AuroraDLCSettingsPath);
@@ -158,8 +159,7 @@ bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettingsForContent
 bool FGFPakExporterCommandletModule::CheckCommandLineAndAdjustSettingsForBaseGame(const FString& CmdLine, const FString& AuroraSettings)
 {
     UE_LOG(LogGFPakExporterCommandlet, Warning, TEXT("Found the Aurora Base Game Parameter '-%s=%s' in the CommandLine"), *FGFPakExporterModule::AuroraBaseGameCommandLineParameter, *AuroraSettings)
-        
-    BaseGameExporterSettings = {};
+    
     if (FPaths::FileExists(AuroraSettings))
     {
         TOptional<FAuroraBaseGameExporterSettings> Settings = FAuroraBaseGameExporterSettings::FromJsonSettings(AuroraSettings);
@@ -206,6 +206,26 @@ void FGFPakExporterCommandletModule::CreateAssetManager()
 
     if (CookType == EAuroraCookType::AuroraBaseGame)
     {
+        // OnGetPackageCookRule will be called on every asset during UAssetManager::ModifyCook but before OnModifyCookDelegate is called
+        AssetManager->OnGetPackageCookRule.BindLambda([](EPrimaryAssetCookRule CurrentCookRule, FName PackageName)
+        {
+            if (FGFPakExporterCommandletModule* This = GetPtr())
+            {
+                FAuroraBaseGameExporterConfig::EAssetExportRule ExportRule = This->BaseGameExporterSettings.Config.GetAssetExportRule(PackageName);
+                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Include || This->AdditionalPackagesToCook.Contains(PackageName))
+                {
+                    This->AdditionalPackagesToCook.Add(PackageName);
+                    return EPrimaryAssetCookRule::AlwaysCook;
+                }
+                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Exclude || This->AdditionalPackagesToNeverCook.Contains(PackageName))
+                {
+                    //todo: might not work properly with Cook All?
+                    return EPrimaryAssetCookRule::Unknown; // We cannot return `NeverCook` as the asset might be referenced by another asset.
+                }
+            }
+            return CurrentCookRule;
+        });
+        // Once have adjusted all the assets we know about, we need to ensure their references are also handled
         AssetManager->OnModifyCookDelegate.AddLambda([](TConstArrayView<const ITargetPlatform*> TargetPlatforms, TArray<FName>& PackagesToCook, TArray<FName>& PackagesToNeverCook)
         {
             if (FGFPakExporterCommandletModule* This = GetPtr())
@@ -230,24 +250,6 @@ void FGFPakExporterCommandletModule::CreateAssetManager()
                     return PackagesToCook.Contains(PackageName);
                 });
             }
-        });
-        AssetManager->OnGetPackageCookRule.BindLambda([](EPrimaryAssetCookRule CurrentCookRule, FName PackageName)
-        {
-            if (FGFPakExporterCommandletModule* This = GetPtr())
-            {
-                FAuroraBaseGameExporterConfig::EAssetExportRule ExportRule = This->BaseGameExporterSettings.Config.GetAssetExportRule(PackageName);
-                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Include || This->AdditionalPackagesToCook.Contains(PackageName))
-                {
-                    This->AdditionalPackagesToCook.Add(PackageName);
-                    return EPrimaryAssetCookRule::AlwaysCook;
-                }
-                if (ExportRule == FAuroraBaseGameExporterConfig::EAssetExportRule::Exclude || This->AdditionalPackagesToNeverCook.Contains(PackageName))
-                {
-                    //todo: might not work properly with Cook All
-                    return EPrimaryAssetCookRule::Unknown; // We cannot return `NeverCook` as the asset might be referenced by another asset.
-                }
-            }
-            return CurrentCookRule;
         });
     }
     else if (CookType == EAuroraCookType::AuroraContentDLC)

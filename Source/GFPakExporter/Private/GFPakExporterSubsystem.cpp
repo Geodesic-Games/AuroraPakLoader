@@ -75,10 +75,10 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateBaseGameLauncherProfile(const
 {
 	UE_LOG(LogGFPakExporter, Display, TEXT("UGFPakExporterSubsystem::CreateBaseGameLauncherProfile"));
 	
-	FString SettingsFilename = InBaseGameSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraBaseGameExporterConfig.json")) : InBaseGameSettings.SettingsFilePath.FilePath;
+	FString SettingsFilename = InBaseGameSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraBaseGameExporterSettings.json")) : InBaseGameSettings.SettingsFilePath.FilePath;
 	if (!InBaseGameSettings.SaveJsonSettings(SettingsFilename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraBaseGameExporterConfig' to '%s'"), *SettingsFilename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraBaseGameExporterSettings' to '%s'"), *SettingsFilename);
 		return nullptr;
 	}
 	SettingsFilename = FPaths::ConvertRelativePathToFull(SettingsFilename);
@@ -156,10 +156,10 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateContentDLCLauncherProfileFrom
 		return nullptr;
 	}
 	
-	FString SettingsFilename = InDLCSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraDLCExporterConfig.json")) : InDLCSettings.SettingsFilePath.FilePath;
+	FString SettingsFilename = InDLCSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraContentDLCExporterSettings.json")) : InDLCSettings.SettingsFilePath.FilePath;
 	if (!InDLCSettings.SaveJsonSettings(SettingsFilename))
 	{
-		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraDLCExporterConfig' to '%s'"), *SettingsFilename);
+		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraContentDLCExporterSettings' to '%s'"), *SettingsFilename);
 		return nullptr;
 	}
 	UE_LOG(LogGFPakExporter, Display, TEXT("Saved the Exporter Config to '%s'"), *SettingsFilename);
