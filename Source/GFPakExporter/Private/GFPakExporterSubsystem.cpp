@@ -23,6 +23,13 @@ void UGFPakExporterSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	// So we have to do our cleanup before the regular callback is called.
 	IMainFrameModule& MainFrame = FModuleManager::LoadModuleChecked<IMainFrameModule>("MainFrame");
 	CanCloseEditorDelegate = MainFrame.RegisterCanCloseEditor(IMainFrameModule::FMainFrameCanCloseEditor::CreateUObject(this, &UGFPakExporterSubsystem::CanCloseEditor));
+
+	// Load last settings
+	FString DefaultBaseGameSettingsPath = GetDefaultBaseGameExporterSettingsPath();
+	if (FPaths::FileExists(DefaultBaseGameSettingsPath))
+	{
+		LastBaseGameSettings.LoadJsonSettings(DefaultBaseGameSettingsPath);
+	}
 }
 
 void UGFPakExporterSubsystem::Deinitialize()
@@ -75,7 +82,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateBaseGameLauncherProfile(const
 {
 	UE_LOG(LogGFPakExporter, Display, TEXT("UGFPakExporterSubsystem::CreateBaseGameLauncherProfile"));
 	
-	FString SettingsFilename = InBaseGameSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraBaseGameExporterSettings.json")) : InBaseGameSettings.SettingsFilePath.FilePath;
+	FString SettingsFilename = InBaseGameSettings.SettingsFilePath.FilePath.IsEmpty() ? GetDefaultBaseGameExporterSettingsPath() : InBaseGameSettings.SettingsFilePath.FilePath;
 	if (!InBaseGameSettings.SaveJsonSettings(SettingsFilename))
 	{
 		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraBaseGameExporterSettings' to '%s'"), *SettingsFilename);
@@ -100,7 +107,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateBaseGameLauncherProfile(const
 	// Cook
 	Profile->SetCookConfiguration(InBaseGameSettings.BuildSettings.GetCookConfiguration());
 	Profile->SetCookMode(ELauncherProfileCookModes::ByTheBook);
-	Profile->AddCookedPlatform(TEXT("Windows")); // todo: How to derive this?
+	Profile->AddCookedPlatform(InBaseGameSettings.BuildSettings.CookingPlatform);
 	// Cook - Release DLC
 	Profile->SetCreateDLC(false);
 	// Cook - Advanced
@@ -119,6 +126,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateBaseGameLauncherProfile(const
 	
 	// Package
 	Profile->SetPackagingMode(ELauncherProfilePackagingModes::Locally);
+	Profile->SetPackageDirectory(InBaseGameSettings.BuildSettings.PackageDirectory.Path);
 	// Deploy
 	Profile->SetDeploymentMode(ELauncherProfileDeploymentModes::DoNotDeploy);
 	
@@ -156,7 +164,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateContentDLCLauncherProfileFrom
 		return nullptr;
 	}
 	
-	FString SettingsFilename = InDLCSettings.SettingsFilePath.FilePath.IsEmpty() ? FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraContentDLCExporterSettings.json")) : InDLCSettings.SettingsFilePath.FilePath;
+	FString SettingsFilename = InDLCSettings.SettingsFilePath.FilePath.IsEmpty() ? GetDefaultContentDLCExporterSettingsPath() : InDLCSettings.SettingsFilePath.FilePath;
 	if (!InDLCSettings.SaveJsonSettings(SettingsFilename))
 	{
 		UE_LOG(LogGFPakExporter, Error, TEXT("Unable save the 'AuroraContentDLCExporterSettings' to '%s'"), *SettingsFilename);
@@ -180,7 +188,7 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateContentDLCLauncherProfileFrom
 	// Cook
 	Profile->SetCookConfiguration(InDLCSettings.BuildSettings.GetCookConfiguration());
 	Profile->SetCookMode(ELauncherProfileCookModes::ByTheBook);
-	Profile->AddCookedPlatform(TEXT("Windows")); // todo: How to derive this?
+	Profile->AddCookedPlatform(InDLCSettings.BuildSettings.CookingPlatform);
 	// Cook - Release DLC
 	Profile->SetBasedOnReleaseVersionName(TEXT("AuroraDummyReleaseVersion")); // We need to give a BaseRelease version, but it will be ignored
 	Profile->SetCreateDLC(true);
@@ -205,8 +213,19 @@ ILauncherProfilePtr UGFPakExporterSubsystem::CreateContentDLCLauncherProfileFrom
 	
 	// Package
 	Profile->SetPackagingMode(ELauncherProfilePackagingModes::Locally);
+
 	// Deploy
 	Profile->SetDeploymentMode(ELauncherProfileDeploymentModes::DoNotDeploy);
+
+	
+	if (!InDLCSettings.BuildSettings.PackageDirectory.Path.IsEmpty())
+	{
+		Profile->SetPackageDirectory(FGFPakExporterModule::GetTempStagingDir());
+		// Here sneakily adding another command to the command line as there is no other way using a Launcher Profile
+		FString PlatformCookDir = FPaths::Combine(FGFPakExporterModule::GetTempCookDir(), InDLCSettings.BuildSettings.CookingPlatform); // Platform needs to be included in the path
+		Profile->SetAdditionalCommandLineParameters(Profile->GetAdditionalCommandLineParameters() + FString::Printf(TEXT("\" -CookOutputDir=\"%s\" -AuroraDummy=\""), *PlatformCookDir));
+		// We do not do an Archive as it copied too many folder levels compared to what we need
+	}
 	
 	return Profile;
 }
@@ -250,6 +269,16 @@ bool UGFPakExporterSubsystem::CanCloseEditor() const
 	}
 	
 	return true;
+}
+
+FString UGFPakExporterSubsystem::GetDefaultBaseGameExporterSettingsPath()
+{
+	return FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraBaseGameExporterSettings.json"));
+}
+
+FString UGFPakExporterSubsystem::GetDefaultContentDLCExporterSettingsPath()
+{
+	return FPaths::Combine(FGFPakExporterModule::GetPluginTempDir(), TEXT("AuroraContentDLCExporterSettings.json"));
 }
 
 #undef LOCTEXT_NAMESPACE

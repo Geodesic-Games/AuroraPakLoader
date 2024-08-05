@@ -14,7 +14,10 @@ struct GFPAKEXPORTER_API FAuroraContentDLCExporterConfig
 {
 	GENERATED_BODY()
 public:
-	/** The name of the exported DLC */
+	/**
+	 * The name of the exported DLC.
+	 * Note that if a DLC has the same Name as another Plugin or another DLC, it will fail to load as a DLC is registered with the Plugin Manager which requires unique names
+	 */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config)
 	FString DLCName;
 
@@ -143,7 +146,9 @@ struct GFPAKEXPORTER_API FAuroraBuildSettings
 {
 	GENERATED_BODY()
 public:
-
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Output)
+	FDirectoryPath PackageDirectory;
+	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	EAuroraBuildConfiguration BuildConfiguration = EAuroraBuildConfiguration::Development;
 	EBuildConfiguration GetBuildConfiguration() const { return static_cast<EBuildConfiguration>(BuildConfiguration); }
@@ -151,6 +156,9 @@ public:
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	EAuroraBuildConfiguration CookConfiguration = EAuroraBuildConfiguration::Development;
 	EBuildConfiguration GetCookConfiguration() const { return static_cast<EBuildConfiguration>(CookConfiguration); }
+
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
+	FString CookingPlatform = TEXT("Windows"); //todo: find a way to give a dropdown or something nicer. Check FLauncherProfile::AddCookedPlatform
 	
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Settings)
 	bool bCookUnversioned = false;

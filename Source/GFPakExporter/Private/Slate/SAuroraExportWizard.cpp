@@ -190,21 +190,24 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs)
 					SAssignNew(ExportButton, SPrimaryButton)
 					.Text(LOCTEXT("Export_Label", "Export"))
 					.OnClicked(this, &SAuroraExportWizard::HandleExportButtonClicked)
-					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [bIsBaseGameExport = IsBaseGameExport(), ContentDLCSettings = ContentDLCSettings]()
+					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [bIsBaseGameExport = IsBaseGameExport(), BaseGameSettings = BaseGameSettings, ContentDLCSettings = ContentDLCSettings]()
 					{
-						if (bIsBaseGameExport)
+						if (bIsBaseGameExport && BaseGameSettings)
 						{
-							return true;
+							if (FAuroraBaseGameExporterSettings* ExporterSettings = BaseGameSettings->Cast<FAuroraBaseGameExporterSettings>())
+							{
+								return !ExporterSettings->BuildSettings.PackageDirectory.Path.IsEmpty();
+							}
 						}
 						
-						if (GEditor && ContentDLCSettings)
+						if (!bIsBaseGameExport && GEditor && ContentDLCSettings)
 						{
 							UGFPakExporterSubsystem* Subsystem = GEditor->GetEditorSubsystem<UGFPakExporterSubsystem>();
 							if (Subsystem && !Subsystem->IsExporting())
 							{
 								if (FAuroraContentDLCExporterSettings* ExporterSettings = ContentDLCSettings->Cast<FAuroraContentDLCExporterSettings>())
 								{
-									return ExporterSettings->Config.IsValid();
+									return ExporterSettings->Config.IsValid() && !ExporterSettings->BuildSettings.PackageDirectory.Path.IsEmpty();
 								}
 							}
 						}

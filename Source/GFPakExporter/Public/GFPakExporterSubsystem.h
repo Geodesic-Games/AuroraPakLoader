@@ -41,6 +41,11 @@ public:
 
 	bool IsExporting() const;
 	bool CanCloseEditor() const;
+
+	/** Default Path to AuroraBaseGameExporterSettings.json */
+	static FString GetDefaultBaseGameExporterSettingsPath();
+	/** Default Path to AuroraContentDLCExporterSettings.json */
+	static FString GetDefaultContentDLCExporterSettingsPath();
 private:
 	ILauncherPtr Launcher{};
 	TSharedPtr<FAuroraBuildTask> AuroraBuildTask{};

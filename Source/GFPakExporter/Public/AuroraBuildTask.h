@@ -13,7 +13,7 @@ struct FAuroraBuildTask : public TSharedFromThis<FAuroraBuildTask>
 {
 public:
 	FAuroraBuildTask(const ILauncherProfilePtr& InProfile, const FAuroraContentDLCExporterSettings& InSettings)
-		: bIsBaseGameBuildTask(false), Profile(InProfile), DLCSettings(InSettings) {}
+		: bIsBaseGameBuildTask(false), Profile(InProfile), ContentDLCSettings(InSettings) {}
 	FAuroraBuildTask(const ILauncherProfilePtr& InProfile, const FAuroraBaseGameExporterSettings& InSettings)
 		: bIsBaseGameBuildTask(true), Profile(InProfile), BaseGameSettings(InSettings) {}
 	
@@ -30,7 +30,7 @@ private:
 	bool bIsBaseGameBuildTask;
 	
 	ILauncherProfilePtr Profile{};
-	FAuroraContentDLCExporterSettings DLCSettings;
+	FAuroraContentDLCExporterSettings ContentDLCSettings;
 	FAuroraBaseGameExporterSettings BaseGameSettings;
 	ELauncherTaskStatus::Type Status = ELauncherTaskStatus::Pending;
 	ILauncherWorkerPtr LauncherWorker{};
@@ -52,4 +52,7 @@ private: // Notification
 	void HandleNotificationCancelButtonClicked();
 	void HandleNotificationDismissButtonClicked();
 	void HandleNotificationHyperlinkNavigateShowOutput();
+
+	void CreateDLCFolderForBaseGame();
+	bool CopyContentDLCToPackagingFolder();
 };
