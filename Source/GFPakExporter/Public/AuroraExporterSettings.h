@@ -180,6 +180,8 @@ public:
 	FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterSettings&) = default;
 	
 	explicit FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterConfig& InConfig) : Config(InConfig) {}
+	explicit FAuroraContentDLCExporterSettings(const FAuroraContentDLCExporterConfig& InConfig, const FAuroraBuildSettings& InBuildSettings)
+		: Config(InConfig), BuildSettings(InBuildSettings) {}
 	
 	/** The Configuration for the Export */
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=Config, meta=(ShowOnlyInnerProperties, FullyExpand=true, NoResetToDefault))

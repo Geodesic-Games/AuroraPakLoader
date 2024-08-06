@@ -30,6 +30,15 @@ void UGFPakExporterSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 	{
 		LastBaseGameSettings.LoadJsonSettings(DefaultBaseGameSettingsPath);
 	}
+	FString DefaultContentDLCSettingsPath = GetDefaultContentDLCExporterSettingsPath();
+	if (FPaths::FileExists(DefaultContentDLCSettingsPath))
+	{
+		FAuroraContentDLCExporterSettings Settings;
+		if (Settings.LoadJsonSettings(DefaultContentDLCSettingsPath))
+		{
+			LastContentDLCBuildSettings = Settings.BuildSettings;
+		}
+	}
 }
 
 void UGFPakExporterSubsystem::Deinitialize()
@@ -54,9 +63,9 @@ void UGFPakExporterSubsystem::PromptForBaseGameExport()
 		{
 			if (Settings)
 			{
-				Subsystem->LastBaseGameSettings = Settings.GetValue();
-				ILauncherProfilePtr Profile = Subsystem->CreateBaseGameLauncherProfile(Subsystem->LastBaseGameSettings);
-				Subsystem->LaunchBaseGameProfile(Profile, Subsystem->LastBaseGameSettings);
+				Subsystem->LastBaseGameSettings = Settings.GetValue(); //in case the Launch fails, we set it now
+				ILauncherProfilePtr Profile = Subsystem->CreateBaseGameLauncherProfile(Settings.GetValue());
+				Subsystem->LaunchBaseGameProfile(Profile, Settings.GetValue());
 			}
 		}
 	}));
@@ -71,6 +80,7 @@ void UGFPakExporterSubsystem::PromptForContentDLCExport(const FAuroraContentDLCE
 		{
 			if (Settings)
 			{
+				Subsystem->LastContentDLCBuildSettings = Settings.GetValue().BuildSettings; //in case the Launch fails, we set it now
 				ILauncherProfilePtr Profile = Subsystem->CreateContentDLCLauncherProfileFromSettings(Settings.GetValue());
 				Subsystem->LaunchContentDLCProfile(Profile, Settings.GetValue());
 			}
@@ -146,6 +156,9 @@ TSharedPtr<FAuroraBuildTask> UGFPakExporterSubsystem::LaunchBaseGameProfile(cons
 		ILauncherServicesModule& LauncherServicesModule = FModuleManager::LoadModuleChecked<ILauncherServicesModule>(TEXT("LauncherServices"));
 		Launcher = LauncherServicesModule.CreateLauncher();
 	}
+	
+	LastBaseGameSettings = InBaseGameSettings;
+	
 	AuroraBuildTask = MakeShared<FAuroraBuildTask>(InProfile, InBaseGameSettings);
 	if (!AuroraBuildTask->Launch(Launcher))
 	{
@@ -243,6 +256,9 @@ TSharedPtr<FAuroraBuildTask> UGFPakExporterSubsystem::LaunchContentDLCProfile(co
 		ILauncherServicesModule& LauncherServicesModule = FModuleManager::LoadModuleChecked<ILauncherServicesModule>(TEXT("LauncherServices"));
 		Launcher = LauncherServicesModule.CreateLauncher();
 	}
+	
+	LastContentDLCBuildSettings = InDLCSettings.BuildSettings;
+	
 	AuroraBuildTask = MakeShared<FAuroraBuildTask>(InProfile, InDLCSettings);
 	if (!AuroraBuildTask->Launch(Launcher))
 	{

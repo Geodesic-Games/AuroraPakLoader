@@ -165,6 +165,27 @@ bool FAuroraBuildTask::Launch(const ILauncherPtr& Launcher)
 	TSharedRef<ITargetDeviceProxyManager> DeviceProxyManager = DeviceServiceModule.GetDeviceProxyManager();
 
 	Status = ELauncherTaskStatus::Busy;
+	// First we need to Clean the Cooked Folder as other assets might end up being added to the package.
+	{
+		FString AdditionalParams = Profile->GetAdditionalCommandLineParameters();
+		FString Path;
+		if (!AdditionalParams.IsEmpty() && AdditionalParams.Split(TEXT("-CookOutputDir=\""), nullptr, &Path) && Path.Split(TEXT("\""), &Path, nullptr))
+		{
+			if (FPaths::DirectoryExists(Path))
+			{
+				IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+				if (PlatformFile.DeleteDirectoryRecursively(*Path))
+				{
+					UE_LOG(LogGFPakExporter, Display, TEXT("Cleaned the Cook directory '%s'."), *Path);
+				}
+				else
+				{
+					UE_LOG(LogGFPakExporter, Error, TEXT("Unable to delete the Cook directory '%s'. Some additional Assets might end up packaged."), *Path);
+				}
+			}
+		}
+	}
+	
 	LauncherWorker = Launcher->Launch(DeviceProxyManager, Profile.ToSharedRef());
 	// Not ideal but not able to set callbacks before
 	// This will allow us to pipe the launcher messages into the command window.

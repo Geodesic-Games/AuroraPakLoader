@@ -29,7 +29,7 @@ public:
 	// todo: what delegate to create for BP? and when?
 	void PromptForContentDLCExport(const FAuroraContentDLCExporterConfig& InConfig)
 	{
-		PromptForContentDLCExport(FAuroraContentDLCExporterSettings{InConfig});
+		PromptForContentDLCExport(FAuroraContentDLCExporterSettings(InConfig, LastContentDLCBuildSettings));
 	}
 	void PromptForContentDLCExport(const FAuroraContentDLCExporterSettings& InSettings);
 
@@ -46,9 +46,12 @@ public:
 	static FString GetDefaultBaseGameExporterSettingsPath();
 	/** Default Path to AuroraContentDLCExporterSettings.json */
 	static FString GetDefaultContentDLCExporterSettingsPath();
+	
+	const FAuroraBuildSettings& GetLastContentDLCBuildSettings() const { return LastContentDLCBuildSettings; }
 private:
 	ILauncherPtr Launcher{};
 	TSharedPtr<FAuroraBuildTask> AuroraBuildTask{};
 	FDelegateHandle CanCloseEditorDelegate;
 	FAuroraBaseGameExporterSettings LastBaseGameSettings{};
+	FAuroraBuildSettings LastContentDLCBuildSettings{};
 };
