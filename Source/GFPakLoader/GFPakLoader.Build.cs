@@ -27,6 +27,7 @@ public class GFPakLoader : ModuleRules
 				"Core",
 				"AssetRegistry",
 				"Projects",
+				"GameFeatures",
 			}
 		);
 		PrivateDependencyModuleNames.AddRange(
@@ -37,7 +38,6 @@ public class GFPakLoader : ModuleRules
                 "Engine",
                 "PakFile",
                 "Projects", 
-                "GameFeatures",
                 "EngineSettings",
                 "RenderCore",
                 "RHI",

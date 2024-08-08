@@ -2,6 +2,7 @@
 
 #pragma once
 
+#include "GameFeaturePluginOperationResult.h"
 #include "PluginDescriptor.h"
 #include "PluginMountPoint.h"
 #include "AssetRegistry/AssetRegistryState.h"
@@ -12,10 +13,6 @@
 
 
 class UGFPakLoaderSubsystem;
-
-namespace UE::GameFeatures {
-struct FResult;
-}
 
 UENUM(BlueprintType)
 enum class EGFPakLoaderStatus : uint8
