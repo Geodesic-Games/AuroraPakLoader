@@ -12,18 +12,26 @@
 struct FAuroraBuildTask : public TSharedFromThis<FAuroraBuildTask>
 {
 public:
-	FAuroraBuildTask(const ILauncherProfilePtr& InProfile, const FAuroraExporterSettings& InSettings)
-		: Profile(InProfile), Settings(InSettings) {}
-
+	FAuroraBuildTask(const ILauncherProfilePtr& InProfile, const FAuroraContentDLCExporterSettings& InSettings)
+		: bIsBaseGameBuildTask(false), Profile(InProfile), ContentDLCSettings(InSettings) {}
+	FAuroraBuildTask(const ILauncherProfilePtr& InProfile, const FAuroraBaseGameExporterSettings& InSettings)
+		: bIsBaseGameBuildTask(true), Profile(InProfile), BaseGameSettings(InSettings) {}
+	
 	bool Launch(const ILauncherPtr& Launcher);
 	void Cancel();
 	
 	ELauncherTaskStatus::Type GetStatus() const { return Status; };
 	ILauncherProfilePtr GetProfile() const { return Profile; }
 	ILauncherWorkerPtr GetLauncherWorker() const { return LauncherWorker; }
+
+	bool IsBaseGameBuildTask() const { return bIsBaseGameBuildTask; }
+	bool IsContentDLCBuildTask() const { return !bIsBaseGameBuildTask; }
 private:
+	bool bIsBaseGameBuildTask;
+	
 	ILauncherProfilePtr Profile{};
-	FAuroraExporterSettings Settings;
+	FAuroraContentDLCExporterSettings ContentDLCSettings;
+	FAuroraBaseGameExporterSettings BaseGameSettings;
 	ELauncherTaskStatus::Type Status = ELauncherTaskStatus::Pending;
 	ILauncherWorkerPtr LauncherWorker{};
 	
@@ -44,4 +52,7 @@ private: // Notification
 	void HandleNotificationCancelButtonClicked();
 	void HandleNotificationDismissButtonClicked();
 	void HandleNotificationHyperlinkNavigateShowOutput();
+
+	void CreateDLCFolderForBaseGame();
+	bool CopyContentDLCToPackagingFolder();
 };

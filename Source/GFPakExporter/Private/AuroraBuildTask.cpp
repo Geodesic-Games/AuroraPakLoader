@@ -1,7 +1,9 @@
 ﻿// Copyright GeoTech BV
 #include "AuroraBuildTask.h"
 
+#include "GFPakExporter.h"
 #include "GFPakExporterLog.h"
+#include "GFPakLoaderSettings.h"
 #include "ITargetDeviceServicesModule.h"
 #include "OutputLogModule.h"
 #include "Framework/Notifications/NotificationManager.h"
@@ -13,7 +15,7 @@ class FMainFrameActionsNotificationTask // As per UATHelperModule.cpp
 {
 public:
 
-	FMainFrameActionsNotificationTask(TWeakPtr<SNotificationItem> InNotificationItemPtr, SNotificationItem::ECompletionState InCompletionState, const FText& InText, const FText& InLinkText = FText(), bool InExpireAndFadeout = true)
+	FMainFrameActionsNotificationTask(const TWeakPtr<SNotificationItem>& InNotificationItemPtr, SNotificationItem::ECompletionState InCompletionState, const FText& InText, const FText& InLinkText = FText(), bool InExpireAndFadeout = true)
 		: CompletionState(InCompletionState)
 		, NotificationItemPtr(InNotificationItemPtr)
 		, Text(InText)
@@ -163,6 +165,27 @@ bool FAuroraBuildTask::Launch(const ILauncherPtr& Launcher)
 	TSharedRef<ITargetDeviceProxyManager> DeviceProxyManager = DeviceServiceModule.GetDeviceProxyManager();
 
 	Status = ELauncherTaskStatus::Busy;
+	// First we need to Clean the Cooked Folder as other assets might end up being added to the package.
+	{
+		FString AdditionalParams = Profile->GetAdditionalCommandLineParameters();
+		FString Path;
+		if (!AdditionalParams.IsEmpty() && AdditionalParams.Split(TEXT("-CookOutputDir=\""), nullptr, &Path) && Path.Split(TEXT("\""), &Path, nullptr))
+		{
+			if (FPaths::DirectoryExists(Path))
+			{
+				IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+				if (PlatformFile.DeleteDirectoryRecursively(*Path))
+				{
+					UE_LOG(LogGFPakExporter, Display, TEXT("Cleaned the Cook directory '%s'."), *Path);
+				}
+				else
+				{
+					UE_LOG(LogGFPakExporter, Error, TEXT("Unable to delete the Cook directory '%s'. Some additional Assets might end up packaged."), *Path);
+				}
+			}
+		}
+	}
+	
 	LauncherWorker = Launcher->Launch(DeviceProxyManager, Profile.ToSharedRef());
 	// Not ideal but not able to set callbacks before
 	// This will allow us to pipe the launcher messages into the command window.
@@ -204,8 +227,8 @@ void FAuroraBuildTask::HandleStageStarted(const FString& InStage)
 	if (ensure(LauncherWorker))
 	{
 		TArray<ILauncherTaskPtr> TaskList;
-		int NbTasks = LauncherWorker->GetTasks(TaskList);
-		int CurrentTask = 1 + TaskList.IndexOfByPredicate([](const ILauncherTaskPtr& Task)
+		const int NbTasks = LauncherWorker->GetTasks(TaskList);
+		const int CurrentTask = 1 + TaskList.IndexOfByPredicate([](const ILauncherTaskPtr& Task)
 		{
 			return Task->GetStatus() != ELauncherTaskStatus::Completed;
 		});
@@ -230,25 +253,39 @@ void FAuroraBuildTask::LaunchCompleted(bool Outcome, double ExecutionTime, int32
 
 	if (LauncherWorker)
 	{
-		if ( ReturnCode == 0 )
+		if (ReturnCode == 0)
 		{
-			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
-				NotificationItemPtr,
-				SNotificationItem::CS_Success,
-				FText::Format(LOCTEXT("UatProcessSucceededNotification", "'{0}' complete!"), FText::FromString(Settings.Config.DLCName))
-			);
-			Status = ELauncherTaskStatus::Completed;
+			bool bSuccessful = true;
+			if (IsBaseGameBuildTask())
+			{
+				CreateDLCFolderForBaseGame();
+			}
+			else
+			{
+				bSuccessful = CopyContentDLCToPackagingFolder();
+			}
+
+			if (bSuccessful)
+			{
+				TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
+					NotificationItemPtr,
+					SNotificationItem::CS_Success,
+					IsBaseGameBuildTask() ? LOCTEXT("Notification_Title_BaseGame_Complete", "Aurora Project Packaging failed!") : FText::Format(LOCTEXT("Notification_Title_DLC_Complete", "Aurora DLC Packaging '{0}' complete!"), FText::FromString(ContentDLCSettings.Config.DLCName))
+				);
+				Status = ELauncherTaskStatus::Completed;
+				return;
+			}
 		}
-		else
-		{	
-			TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
-				NotificationItemPtr,
-				SNotificationItem::CS_Fail,
-				FText::Format(LOCTEXT("PackagerFailedNotification", "'{0}' failed!"), FText::FromString(Settings.Config.DLCName)),
-				FText(),
-				false);
-			Status = ELauncherTaskStatus::Failed;
-		}
+		
+		TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
+			NotificationItemPtr,
+			SNotificationItem::CS_Fail,
+			IsBaseGameBuildTask() ?
+				LOCTEXT("Notification_Title_BaseGame_Fail", "Aurora Project Packaging failed!") :
+				FText::Format(LOCTEXT("Notification_Title_DLC_Fail", "Aurora DLC Packaging '{0}' failed!"), FText::FromString(ContentDLCSettings.Config.DLCName)),
+			FText(),
+			false);
+		Status = ELauncherTaskStatus::Failed;
 	}
 }
 
@@ -261,7 +298,9 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 		TGraphTask<FMainFrameActionsNotificationTask>::CreateTask().ConstructAndDispatchWhenReady(
 			NotificationItemPtr,
 			SNotificationItem::CS_Fail,
-			FText::Format(LOCTEXT("UatProcessFailedNotification", "'{0}' canceled!"), FText::FromString(Settings.Config.DLCName))
+			IsBaseGameBuildTask() ?
+					LOCTEXT("Notification_Title_BaseGame_Cancel", "Aurora Project Packaging canceled!") :
+					FText::Format(LOCTEXT("Notification_Title_DLC_Cancel", "Aurora DLC Packaging '{0}' canceled!"), FText::FromString(ContentDLCSettings.Config.DLCName))
 		);
 		Status = ELauncherTaskStatus::Pending;
 	}
@@ -269,7 +308,7 @@ void FAuroraBuildTask::LaunchCanceled(double ExecutionTime)
 
 bool FAuroraBuildTask::CreateNotification()
 {
-	FText DLCName = FText::FromString(Settings.Config.DLCName);
+	const FText DLCName = FText::FromString(ContentDLCSettings.Config.DLCName);
 	{
 		FScopeLock Lock(&NotificationTextMutex);
 		NotificationText = FText::GetEmpty();
@@ -302,7 +341,13 @@ bool FAuroraBuildTask::CreateNotification()
 		FNotificationButtonInfo(
 			LOCTEXT("UatTaskDismiss", "Dismiss"),
 			FText(),
-			FSimpleDelegate::CreateSP(this, &FAuroraBuildTask::HandleNotificationDismissButtonClicked),
+			FSimpleDelegate::CreateLambda([SharedThis = AsShared().ToSharedPtr()]() // We want to keep the task alive with the notification
+			{
+				if (SharedThis)
+				{
+					SharedThis->HandleNotificationDismissButtonClicked();
+				}
+			}),
 			SNotificationItem::CS_Fail
 		)
 	);
@@ -358,6 +403,100 @@ void FAuroraBuildTask::HandleNotificationHyperlinkNavigateShowOutput()
 {
 	FOutputLogModule& OutputLogModule = FOutputLogModule::Get();
 	OutputLogModule.FocusOutputLog();
+}
+
+void FAuroraBuildTask::CreateDLCFolderForBaseGame()
+{
+	if (FPaths::DirectoryExists(BaseGameSettings.BuildSettings.PackageDirectory.Path))
+	{
+		const FString PackagedProjectPath = FPaths::Combine(BaseGameSettings.BuildSettings.PackageDirectory.Path,
+			BaseGameSettings.BuildSettings.CookingPlatform,
+			FApp::GetProjectName());
+		const FString PackagedContentPath = FPaths::Combine(PackagedProjectPath, TEXT("Content")); //to be sure we are in the right place
+
+		if (const UGFPakLoaderSettings* Settings = GetDefault<UGFPakLoaderSettings>())
+		{
+			const FString StartupFolder = FPaths::GetPathLeaf(Settings->GetAbsolutePakLoadPath());
+			const FString PackagedDLCPath = FPaths::Combine(PackagedProjectPath, StartupFolder); //to be sure we are in the right place
+		
+			if (FPaths::DirectoryExists(PackagedProjectPath) && FPaths::DirectoryExists(PackagedContentPath))
+			{
+				IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+				if (PlatformFile.CreateDirectoryTree(*PackagedDLCPath))
+				{
+					
+					UE_LOG(LogGFPakExporter, Display, TEXT("Created the Startup DLC folder '%s'."), *PackagedDLCPath);
+				}
+				else
+				{
+					UE_LOG(LogGFPakExporter, Warning, TEXT("Unable to create the Startup DLC folder '%s'"), *PackagedDLCPath);
+				}
+			}
+			else
+			{
+				UE_LOG(LogGFPakExporter, Warning, TEXT("Unable to create the Startup DLC folder '%s' because the Packaged Project Path '%s' does not exist or is not valid"),
+					*PackagedDLCPath, *PackagedProjectPath);
+			}
+		}
+	}
+	else
+	{
+		UE_LOG(LogGFPakExporter, Display, TEXT("Skip the creation of the Startup DLC Folder as no Package Directory was supplied."));
+	}
+}
+
+bool FAuroraBuildTask::CopyContentDLCToPackagingFolder()
+{
+	if (!ContentDLCSettings.BuildSettings.PackageDirectory.Path.IsEmpty())
+	{
+		const FString DstPackagedDLCPath = FPaths::Combine(ContentDLCSettings.BuildSettings.PackageDirectory.Path, ContentDLCSettings.Config.DLCName);
+		
+		const FString SrcPackagedDLCPath = FPaths::Combine(FGFPakExporterModule::GetTempStagingDir(),
+			BaseGameSettings.BuildSettings.CookingPlatform,
+			FApp::GetProjectName(),
+			TEXT("Plugins"),
+			ContentDLCSettings.Config.DLCName);
+		const FString SrcPackagedContentPath = FPaths::Combine(SrcPackagedDLCPath, TEXT("Content")); //to be sure we are in the right place
+
+		//todo: could give more leeway here, if a packaged project is given, we could look for the DLC folder
+		
+		if (FPaths::DirectoryExists(SrcPackagedDLCPath) && FPaths::DirectoryExists(SrcPackagedContentPath))
+		{
+			IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
+			if (PlatformFile.CreateDirectoryTree(*DstPackagedDLCPath))
+			{
+				if (PlatformFile.CopyDirectoryTree(*DstPackagedDLCPath, *SrcPackagedDLCPath, true))
+				{
+					UE_LOG(LogGFPakExporter, Display, TEXT("Copied the Content DLC from '%s' to '%s'."),
+						*SrcPackagedDLCPath, *DstPackagedDLCPath);
+					return true;
+				}
+				else
+				{
+					UE_LOG(LogGFPakExporter, Error, TEXT("Unable to Copy the Content DLC from '%s' to '%s' because the copy failed. Some files might be opened."),
+						*SrcPackagedDLCPath, *DstPackagedDLCPath);
+					return false;
+				}
+			}
+			else
+			{
+				UE_LOG(LogGFPakExporter, Error, TEXT("Unable to Move the Content DLC from '%s' to '%s' because we were unable to create the destination folder."),
+					*SrcPackagedDLCPath, *DstPackagedDLCPath);
+				return false;
+			}
+		}
+		else
+		{
+			UE_LOG(LogGFPakExporter, Error, TEXT("Unable to Move the Content DLC from '%s' to '%s' because the source directory does not exist or is not valid."),
+				*SrcPackagedDLCPath, *DstPackagedDLCPath);
+			return false;
+		}
+	}
+	else
+	{
+		UE_LOG(LogGFPakExporter, Display, TEXT("Skip the DLC copy as no PackageDirectory was supplied."));
+		return true;
+	}
 }
 
 #undef LOCTEXT_NAMESPACE
