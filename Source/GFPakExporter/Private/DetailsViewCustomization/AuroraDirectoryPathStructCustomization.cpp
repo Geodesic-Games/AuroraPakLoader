@@ -136,12 +136,13 @@ FReply FAuroraDirectoryPathStructCustomization::OnPickContent(TSharedRef<IProper
 	PropertyHandle->GetValue(PathPickerConfig.DefaultPath);
 	PathPickerConfig.bAllowContextMenu = false;
 	PathPickerConfig.OnPathSelected = FOnPathSelected::CreateSP(this, &FAuroraDirectoryPathStructCustomization::OnPathPicked, PropertyHandle);
+#if ENGINE_MAJOR_VERSION > 5 && ENGINE_MINOR_VERSION > 4
 	PathPickerConfig.bForceShowEngineContent = DirectoryPathHandle->HasMetaData(TEXT("ForceShowEngineContent")) ;
 	PathPickerConfig.bForceShowPluginContent = DirectoryPathHandle->HasMetaData(TEXT("ForceShowPluginContent"));
-
 	
 	PathPickerConfig.bShowViewOptions = true;
-
+#endif
+	
 	FMenuBuilder MenuBuilder(true, nullptr);
 	MenuBuilder.AddWidget(SNew(SBox)
 		.WidthOverride(300.0f)

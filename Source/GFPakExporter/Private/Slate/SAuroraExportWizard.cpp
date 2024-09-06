@@ -190,7 +190,7 @@ void SAuroraExportWizard::Construct(const FArguments& InArgs)
 					SAssignNew(ExportButton, SPrimaryButton)
 					.Text(LOCTEXT("Export_Label", "Export"))
 					.OnClicked(this, &SAuroraExportWizard::HandleExportButtonClicked)
-					.IsEnabled(TAttribute<bool>::CreateSPLambda(this, [bIsBaseGameExport = IsBaseGameExport(), BaseGameSettings = BaseGameSettings, ContentDLCSettings = ContentDLCSettings]()
+					.IsEnabled(TAttribute<bool>::CreateLambda([bIsBaseGameExport = IsBaseGameExport(), BaseGameSettings = BaseGameSettings, ContentDLCSettings = ContentDLCSettings]()
 					{
 						if (bIsBaseGameExport && BaseGameSettings)
 						{
