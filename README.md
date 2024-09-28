@@ -1,9 +1,40 @@
 # Aurora Pak Loader
 
-Plugin to load Pak Plugin at runtime and activate their GameFeatures.
+**Beta Version**
+
+Plugin to load Pak Plugin at runtime and activate their GameFeatures.  
 Was not tested on worlds with WorldPartition enabled.
 
-# Packaging
+# Packaging 
+
+## Project Settings to be adjusted:
+- [ ] Untick `Use IO Store`, `Use Zen Store` and `Share Material Shader Code` in `Project Settings > Project > Packaging`
+- [ ] Tick `Generate No Chunks` in `Project Settings > Project > Packaging`
+
+To test in the editor, we also need to do the following in the testing project:
+- [ ] Tick `Allow Cooked Content in the Editor` in `Project Settings > Engine > Cooker`
+- [ ] Add the line `s.AllowUnversionedContentInEditor=1` in the `Config\DefaultEngine.ini` file, under the category `[/Script/UnrealEd.CookerSettings]`. This should look like this:
+```
+[/Script/UnrealEd.CookerSettings]
+cook.AllowCookedDataInEditorBuilds=True
+s.AllowUnversionedContentInEditor=1
+```
+
+## Package Project
+
+In the content browser, right click on `All` or `Content` and under `Aurora`, select `Create a Packaged Project`.
+
+## Package DLC Pak
+
+In the content browser, right click on any content folder, or select the items to packaged and right click and under `Aurora`, select `Create a Content DLC Pak`.
+
+# Common issues
+
+It is currently not possible to Mount a DLC Pak which would have the same Mount Point as a plugin.
+If you are exporting the plugin `Stage_01` as DLC, make sure to remove it from the `Plugins` folder before trying to load the DLC of the same name.
+Similarly, make sure the plugin does not end up cooked as part of the Base Game Package.
+
+# Legacy Packaging process, if newer version does not work
 
 To work as expected, there are a few settings that need to be adjusted manually (for now at least) on both the packaging project and the playing project.  
 It is important to note that to package individual plugins, we are leveraging the DLC feature of UE.  
@@ -26,6 +57,7 @@ We will then package the plugin as a DLC, which will contain **all files not pre
 ### Project Settings to be adjusted:
 - [ ] Untick `Use IO Store`, `Use Zen Store` and `Share Material Shader Code` in `Project Settings > Project > Packaging`
 - [ ] Tick `Generate No Chunks` in `Project Settings > Project > Packaging`
+
 To test in the editor, we also need to do the following in the testing project:
 - [ ] Tick `Allow Cooked Content in the Editor` in `Project Settings > Engine > Cooker`
 - [ ] Add the line `s.AllowUnversionedContentInEditor=1` in the `Config\DefaultEngine.ini` file, under the category `[/Script/UnrealEd.CookerSettings]`. This should look like this:
@@ -51,7 +83,7 @@ In the main UE Toolbar (next to he Play button), open the `Project Launcher...` 
 
 ### Custom Plugin Launch Profiles:
 The setup is the same as the Base Game setup apart from the `Cook` settings:
-- [ ] In the `Custom Launch Profiles`, add a new `Custom Profile` for the **Plugin Packaging** and name it appropriately (ex: `Hou-minute-maid-park Plugin`)
+- [ ] In the `Custom Launch Profiles`, add a new `Custom Profile` for the **Plugin Packaging** and name it appropriately (ex: `Stage_01 Plugin`)
   - [ ] *In the `Project` section, change the `Project` to `Any Project` (so it compiles the currently opened UE project)*
   - [ ] *You can adjust the Build Configuration as required under `Build`*
   - [ ] *Under `Cook`, change the cook to `By the book`*
@@ -60,12 +92,12 @@ The setup is the same as the Base Game setup apart from the `Cook` settings:
       - make sure `Create a release version of the game for distribution` is unticked, 
       - make sure `Name of the new release to create` has no name
       - fill `Release version this is based on` with the **name used for the release of the Base Game in the Base Game launch profile** (like `1.0`)
-      - tick `Build DLC`, and under `Name of the DLC to build`, write the **Plugin Name** (ex: `hou-minute-maid-park`) (This does not have to be the same, but some files were be missed if not matching)
+      - tick `Build DLC`, and under `Name of the DLC to build`, write the **Plugin Name** (ex: `Stage_01`) (This does not have to be the same, but some files were be missed if not matching)
       - make sure `Include Engine Content` is unticked. We want to use the Engine content from the project itself, but we will need to make sure it is packaged.
       - *In `Advanced settings`, make sure that only `Compress Content`, `Save packages without versions` and `Store all content in a single file (UnrealPak)` are ticked*
   - [ ] *Change `Package` to `Package and store locally` and leave everything unticked*
   - [ ] *Leave `Archive` unticked and `Deploy` to `Do not Deploy`*
-  - [ ] Run this launch profile, it should be successful. The packaged plugin content should be (by default) in the plugin folder `\Saved\StagedBuilds\Windows\ForPackage\Plugins\GameFeatures\<plugin-name>\`. You can copy this folder (containing the `uplugin` and `Content` subfolder) somewhere else (by default in the `<ProjectFolder>/Stadiums`. **We will need to give the path of this folder (the path to `\<plugin-name>\`) to the AuroraPakLoader plugin to load this GameFeature**
+  - [ ] Run this launch profile, it should be successful. The packaged plugin content should be (by default) in the plugin folder `\Saved\StagedBuilds\Windows\ForPackage\Plugins\GameFeatures\<plugin-name>\`. You can copy this folder (containing the `uplugin` and `Content` subfolder) somewhere else (by default in the `<ProjectFolder>/DLC`. **We will need to give the path of this folder (the path to `\<plugin-name>\`) to the AuroraPakLoader plugin to load this GameFeature**
 
 ### Package the plugin
 
@@ -76,35 +108,28 @@ The current most reliable way is the following:
   - Package the base game in `Platforms > Project Launcher > Base Game Profile > Run`
   - When done, ensure the plugin files are absent in the Game .pak file with the UnrealPak.exe tool:
 ```
-"C:\Program Files\Epic Games\UE_5.3\Engine\Binaries\Win64\UnrealPak.exe" "D:\<path>\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Saved\StagedBuilds\Windows\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Content\Paks\Windows\<plugin-name><ProjectName>-Windows.pak" -list
+"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\Win64\UnrealPak.exe" "D:\<path>\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Saved\StagedBuilds\Windows\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Content\Paks\Windows\<plugin-name><ProjectName>-Windows.pak" -list
 ```
 - [ ] We are now ready to package the plugin.
   - Re-activate the plugin to package in `Edit > Plugins`. No need to restart the editor
   - Package the DLC plugin in `Platforms > Project Launcher > Plugin Profile > Run`
   - When done, ensure the plugin files are present in the Plugin .pak file with the UnrealPak.exe tool:
 ```
-"C:\Program Files\Epic Games\UE_5.3\Engine\Binaries\Win64\UnrealPak.exe" "D:\<path>\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Saved\StagedBuilds\Windows\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Content\Paks\Windows\<plugin-name><ProjectName>-Windows.pak" -list
+"C:\Program Files\Epic Games\UE_5.4\Engine\Binaries\Win64\UnrealPak.exe" "D:\<path>\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Saved\StagedBuilds\Windows\<ProjectName>\Plugins\GameFeatures\<plugin-name>\Content\Paks\Windows\<plugin-name><ProjectName>-Windows.pak" -list
 ```
 
 ## Test the plugin
 
-By default, the AuroraPakLoader plugin will Mount all the Pak Plugins located in the `<ProjectFolder>/Stadiums` folder.
-If Play the level, the Output log should give you information about the mounting and loading process. Also, you should see the content of the pak file in the `Content` panel as a new Mounting Point was added in the `Source` folder.
-If you stop PIE, the content is will be unmounted.
+By default, the AuroraPakLoader plugin will Mount all the Pak Plugins located in the `<ProjectFolder>/DLC` folder.  
+If Play the level, the Output log should give you information about the mounting and loading process. Also, you should see the content of the pak file in the `Content` panel as a new Mounting Point was added in the `Source` folder.  
+If you stop PIE, the content is will be unmounted.  
+**If you unmount a currently loaded map, this will currently crash the game/editor**
 
-To manually load a map, you could call the BP function `Open Level (by Name)` and give the path to the level, like `/hou-minute-maid-park/Maps/HOU_MinuteMaidPark`.
+To manually load a map, you could call the BP function `Open Level (by Name)` and give the path to the level, like `/Stage_01/Maps/Stage_01_Map`.  
 Start playing and the map should get loaded.
 
 By default, GameFeatures are not AutoActivated (they could be if preferred), but you can use `GF Pak Loader Subsystem` to retrieve all the Pak Plugins with a Status of `Mounted` and call the BP function `Activate Game Feature`
 
-# Playing Project
-
-The project that will load the Pak Plugins will need a few settings adjusted:
-- `Project Settings > Project > Packaging > Packaging > Advanced > Additional Asset Directories to Cook`: make sure that `/Engine` is added to the list, as the Pak Plugins will not include Engine content.
-# Next steps
-
-This will need to be tested more in a Shipping build, and with more real case plugins.
-We could also look into the `IO Store` and `Zen Store` that we have turned off, but that are supposed to speed up the loading.
 
 # Additional information
 
