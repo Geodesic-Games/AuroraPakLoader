@@ -131,6 +131,21 @@ FString FGFPakLoaderPlatformFile::GetFilenameOnDisk(const TCHAR* Filename)
 {
 	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(FString, FString{}, GetFilenameOnDisk(Filename))
 }
+FFileOpenResult FGFPakLoaderPlatformFile::OpenRead(const TCHAR* Filename, EOpenReadFlags Flags)
+{
+	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename))
+	{
+		const FString AdjustedFilename = GetPakAdjustedFilename(Filename);
+		Filename = *AdjustedFilename;
+		FFileOpenResult Value = PlatformFile->OpenRead(Filename, Flags);
+		if (Value.HasError() && LowerLevel != nullptr && PakPlatformFile == PlatformFile)
+		{
+			Value = LowerLevel->OpenRead(Filename, Flags);
+		}
+		return Value;
+	}
+	return MakeError(TEXTVIEW("Unable to get the Platform File"));;
+}
 IFileHandle* FGFPakLoaderPlatformFile::OpenRead(const TCHAR* Filename, bool bAllowWrite)
 {
 	UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenRead ( `%s` )"), Filename)
@@ -138,7 +153,24 @@ IFileHandle* FGFPakLoaderPlatformFile::OpenRead(const TCHAR* Filename, bool bAll
 	// we are already have a handle of the right plugin containing the file, could we somehow use it here and in the other functions? 
 	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenRead(Filename, bAllowWrite))
 }
-IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename)
+
+FFileOpenAsyncResult FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename, EOpenReadFlags Flags)
+{
+	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename))
+	{
+		const FString AdjustedFilename = GetPakAdjustedFilename(Filename);
+		Filename = *AdjustedFilename;
+		FFileOpenAsyncResult Value = PlatformFile->OpenAsyncRead(Filename, Flags);
+		if (Value.HasError() && LowerLevel != nullptr && PakPlatformFile == PlatformFile)
+		{
+			Value = LowerLevel->OpenAsyncRead(Filename, Flags);
+		}
+		return Value;
+	}
+	return MakeError(TEXTVIEW("Unable to get the Platform File"));;
+}
+
+IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename, bool bAllowWrite)
 {
 	// We need to be careful in OpenAsyncRead because it works a bit differently than what we might expect.
 	// Calling `PakPlatformFile->OpenAsyncRead` in Editor always ends up calling IPlatformFile::OpenAsyncRead(Filename) without calling the function on the LowerLevel.
@@ -156,10 +188,10 @@ IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filen
 		if (bFoundInPak && PakPlatformFile == PlatformFile)
 		{
 			UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )  =>  PakPlatformFile"), Filename)
-			return PakPlatformFile->OpenAsyncRead(Filename);
+			return PakPlatformFile->OpenAsyncRead(Filename, bAllowWrite);
 		}
 		UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )"), Filename)
-		return LowerLevel->OpenAsyncRead(Filename);
+		return LowerLevel->OpenAsyncRead(Filename, bAllowWrite);
 	}
 	return Value;
 }

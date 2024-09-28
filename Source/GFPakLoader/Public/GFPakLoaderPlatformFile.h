@@ -80,9 +80,11 @@ public:
 	virtual void SetTimeStamp(const TCHAR* Filename, FDateTime DateTime) override;
 	virtual FDateTime GetAccessTimeStamp(const TCHAR* Filename) override;
 	virtual FString GetFilenameOnDisk(const TCHAR* Filename) override;
+	virtual FFileOpenResult OpenRead(const TCHAR* Filename, EOpenReadFlags Flags) override;
 	virtual IFileHandle* OpenRead(const TCHAR* Filename, bool bAllowWrite = false) override;
 	virtual IFileHandle* OpenReadNoBuffering(const TCHAR* Filename, bool bAllowWrite = false) override;
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override;
+	virtual FFileOpenAsyncResult OpenAsyncRead(const TCHAR* Filename, EOpenReadFlags Flags) override;
+	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename, bool bAllowWrite = false) override;
 	virtual IMappedFileHandle* OpenMapped(const TCHAR* Filename) override;
 	virtual IFileHandle* OpenWrite(const TCHAR* Filename, bool bAppend = false, bool bAllowRead = false) override;
 	virtual bool DirectoryExists(const TCHAR* Directory) override;
