@@ -15,6 +15,7 @@
 #include "IPlatformFilePak.h"
 #include "PluginDescriptor.h"
 #include "PluginMountPoint.h"
+#include "Algo/Find.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/AssetRegistryState.h"
 #include "Engine/AssetManager.h"
@@ -23,7 +24,11 @@
 #include "HAL/FileManagerGeneric.h"
 #include "Interfaces/IPluginManager.h"
 #include "Misc/CoreDelegates.h"
+#include "Misc/FeedbackContext.h"
+#include "Misc/FileHelper.h"
 #include "Misc/PathViews.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
 #include "UObject/LinkerLoad.h"
 
 #if WITH_EDITOR
@@ -1326,8 +1331,9 @@ TSharedPtr<IPlugin> UGFPakPlugin::LoadPlugin(const FString& PluginFilePath, FTex
 
 bool UGFPakPlugin::UnloadPlugin(const TSharedRef<IPlugin>& Plugin, FText* OutFailReason)
 {
-	const TConstArrayView<TSharedRef<IPlugin>> Plugins {Plugin};
+	
 	{
+		TArray<TSharedRef<IPlugin>> Plugins{Plugin};
 		FText ErrorMsg;
 		if (!UnloadPluginsAssets(Plugins, &ErrorMsg))
 		{

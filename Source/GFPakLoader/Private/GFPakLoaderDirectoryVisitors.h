@@ -3,7 +3,7 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
+#include "GenericPlatform/GenericPlatformFile.h"
 
 struct FGFPakFilenameMap;
 
