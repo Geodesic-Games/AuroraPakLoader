@@ -13,7 +13,7 @@ struct FAuroraSaveFilePath
 	/**
 	 * The path to the file.
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=FAuroraSaveFilePath)
 	FString FilePath;
 };
 
@@ -25,6 +25,6 @@ struct FAuroraDirectoryPath
 	/**
 	 * The path to the directory.
 	 */
-	UPROPERTY(BlueprintReadWrite, EditAnywhere)
+	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category=FAuroraDirectoryPath)
 	FString Path;
 };

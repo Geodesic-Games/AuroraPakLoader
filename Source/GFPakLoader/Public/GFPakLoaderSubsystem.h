@@ -3,11 +3,12 @@
 #pragma once
 
 #include "CoreMinimal.h"
-
 #include "GFPakLoaderSettings.h"
 #include "GFPakPlugin.h"
 #include "Algo/Copy.h"
+#include "Engine/Engine.h"
 #include "Engine/GameInstance.h"
+#include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/GameInstanceSubsystem.h"
 #include "GFPakLoaderSubsystem.generated.h"
 
