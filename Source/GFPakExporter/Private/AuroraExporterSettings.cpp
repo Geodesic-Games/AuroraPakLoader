@@ -65,7 +65,7 @@ FString FAuroraContentDLCExporterConfig::GetDefaultDLCNameBasedOnContent(const F
 	{
 		TArray<FString> PathArray;
 		int32 Min = FMath::Min(Path1.Num(), Path2.Num());
-		for (int i = 0; i < Min; i++)
+		for (int32 i = 0; i < Min; i++)
 		{
 			if (Path1[i] == Path2[i])
 			{
