@@ -82,7 +82,12 @@ public:
 	virtual FString GetFilenameOnDisk(const TCHAR* Filename) override;
 	virtual IFileHandle* OpenRead(const TCHAR* Filename, bool bAllowWrite = false) override;
 	virtual IFileHandle* OpenReadNoBuffering(const TCHAR* Filename, bool bAllowWrite = false) override;
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION <= 5
 	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override;
+#endif
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename);
+#endif
 	virtual IMappedFileHandle* OpenMapped(const TCHAR* Filename) override;
 	virtual IFileHandle* OpenWrite(const TCHAR* Filename, bool bAppend = false, bool bAllowRead = false) override;
 	virtual bool DirectoryExists(const TCHAR* Directory) override;

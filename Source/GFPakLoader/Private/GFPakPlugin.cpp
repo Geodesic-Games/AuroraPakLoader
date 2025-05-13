@@ -1738,6 +1738,8 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 #endif
 
 #if WITH_EDITORONLY_DATA
+
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION <= 5
 		// Clear the standalone flag on metadata objects that are going to be GC'd below.
 		// This resolves the circular dependency between metadata and packages.
 		TArray<TWeakObjectPtr<UMetaData>> PackageMetaDataWithClearedStandaloneFlag;
@@ -1751,11 +1753,20 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 			}
 		}
 #endif
+
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+		// MetaData is now a class (FMetaData) and no longer a UObject - should not be affected by GC
+		// and will be cleaned up properly with the UPackage.
+#endif
+		
+#endif
 		
 		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS );
 		FlushRenderingCommands();
 		
 #if WITH_EDITORONLY_DATA
+
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION <= 5
 		// Restore the standalone flag on any metadata objects that survived the GC
 		for ( const TWeakObjectPtr<UMetaData>& WeakPackageMetaData : PackageMetaDataWithClearedStandaloneFlag )
 		{
@@ -1765,6 +1776,13 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 				MetaData->SetFlags(RF_Standalone);
 			}
 		}
+#endif
+
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+		// MetaData is now a class (FMetaData) and no longer a UObject - should not be affected by GC
+		// and will be cleaned up properly with the UPackage.
+#endif
+		
 #endif
 		
 #if WITH_EDITOR
@@ -1826,7 +1844,15 @@ void UGFPakPlugin::AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOr
 	// This lambda to remove the given packages from the cache is not threadsafe
 	auto RemovePackagesFromCache = [&PackageNames, &AssetRegistry, Action]()
 	{
+		
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION <= 5
 		const TSet<FName>& CachedEmptyPackagesConst = AssetRegistry->GetCachedEmptyPackages(); // using deprecated function! But haven't found an easy alternative
+#endif
+
+#if ENGINE_MAJOR_VERSION >= 5 && ENGINE_MINOR_VERSION >= 6
+		const TSet<FName>& CachedEmptyPackagesConst = AssetRegistry->GetCachedEmptyPackagesCopy(); // using deprecated function! But haven't found an easy alternative
+#endif
+		
 		TSet<FName>& CachedEmptyPackages = const_cast<TSet<FName>&>(CachedEmptyPackagesConst); // remove const-ness from the cache
 		if (Action == EAddOrRemove::Add)
 		{
