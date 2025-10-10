@@ -172,17 +172,17 @@ public:
 	 * Only Valid if Status is >= `Mounted`
 	 * If you want to filter the assets, use GetPluginAssetsOfClass(const UClass*, TArray<FAssetData>&, bool) instead, or directly PluginAssetRegistry->GetAssets
 	 */
-	const TArray<const FAssetData*>& GetPluginAssetsOfClass(const FTopLevelAssetPath& ClassPathName);
-	const TArray<const FAssetData*>& GetPluginAssetsOfClass(const UClass* Class)
+	TArray<const FAssetData*> GetPluginAssetsOfClass(const FTopLevelAssetPath& ClassPathName);
+	TArray<const FAssetData*> GetPluginAssetsOfClass(const UClass* Class)
 	{
-		return IsValid(Class) ? GetPluginAssetsOfClass(Class->GetClassPathName()) : EmptyAssetsData;
+		return IsValid(Class) ? GetPluginAssetsOfClass(Class->GetClassPathName()) : TArray<const FAssetData*>{};
 	}
 	/**
 	 * Return the array of UWorld Assets cached by the PluginAssetRegistry.
 	 * Only Valid if Status is >= `Mounted`
 	 * If you want to filter the assets, use GetPluginAssetsOfClass(const UClass*, TArray<FAssetData>&, bool) instead, or directly PluginAssetRegistry->GetAssets
 	 */
-	const TArray<const FAssetData*>& GetPluginWorldAssets()
+	TArray<const FAssetData*> GetPluginWorldAssets()
 	{
 		return GetPluginAssetsOfClass(UWorld::StaticClass()->GetClassPathName());
 	}
@@ -317,7 +317,6 @@ private:
 	bool IsValidPakPluginDirectory(const FString& InPakPluginDirectory);
 
 	inline static const FString PaksFolderFromDirectory = TEXT("Content/Paks");
-	inline static const TArray<const FAssetData*> EmptyAssetsData = {};
 private:
 	/** Returns the path to the Pak Plugin Directory this struct points to, for example 'C:/Pak/my-plugin-name/' */
 	UPROPERTY(BlueprintReadOnly, Category="GameFeatures Pak Loader", meta = (AllowPrivateAccess = "true"))

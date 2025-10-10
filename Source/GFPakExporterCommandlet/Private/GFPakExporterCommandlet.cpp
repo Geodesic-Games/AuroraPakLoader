@@ -299,11 +299,11 @@ TArray<FSoftObjectPath> FGFPakExporterCommandletModule::CreateTemporaryAssetRegi
         TArray<FName> DependentPackageNames = FGFPakExporterModule::GetAssetDependencies(Assets);
         for (const FName& PackageName : DependentPackageNames)
         {
-            TArrayView<const FAssetData* const> DependentAssets = PluginAssetRegistry.GetAssetsByPackageName(PackageName);
-            for (const FAssetData* const Asset : DependentAssets)
+            PluginAssetRegistry.EnumerateAssetsByPackageName(PackageName, [&Assets](const FAssetData* Asset)
             {
                 Assets.AddUnique(Asset->GetSoftObjectPath());
-            }
+                return true;
+            });
         }
     }
     

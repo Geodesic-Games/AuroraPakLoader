@@ -258,13 +258,18 @@ bool UGFPakPlugin::GetPluginAssetsOfClass(const UClass* Class, TArray<FAssetData
 	return false;
 }
 
-const TArray<const FAssetData*>& UGFPakPlugin::GetPluginAssetsOfClass(const FTopLevelAssetPath& ClassPathName)
+TArray<const FAssetData*> UGFPakPlugin::GetPluginAssetsOfClass(const FTopLevelAssetPath& ClassPathName)
 {
+	TArray<const FAssetData*> Assets;
 	if (Status >= EGFPakLoaderStatus::Mounted && ensure(PluginAssetRegistry.IsSet()))
 	{
-		return PluginAssetRegistry->GetAssetsByClassPathName(ClassPathName);
+		PluginAssetRegistry->EnumerateAssetsByClassPathName(ClassPathName, [&Assets](const FAssetData* Asset)
+		{
+			Assets.Add(Asset);
+			return true;
+		});
 	}
-	return EmptyAssetsData;
+	return Assets;
 }
 
 const FAssetData* UGFPakPlugin::GetGameFeatureData() const
@@ -274,18 +279,22 @@ const FAssetData* UGFPakPlugin::GetGameFeatureData() const
 		return nullptr;
 	}
 	
-	TArray<const FAssetData*> AllGameFeaturesData = PluginAssetRegistry->GetAssetsByClassPathName(UGameFeatureData::StaticClass()->GetClassPathName());
-	const FAssetData** GameFeaturesData = Algo::FindByPredicate(AllGameFeaturesData, [](const FAssetData* AssetData)
+	const FAssetData* GameFeaturesData = nullptr;
+	PluginAssetRegistry->EnumerateAssetsByClassPathName(UGameFeatureData::StaticClass()->GetClassPathName(), [&GameFeaturesData](const FAssetData* AssetData)
 	{
 		if (ensure(AssetData))
 		{
 			const FString PackagePath = AssetData->PackagePath.ToString().Replace(TEXT("/"), TEXT(""));;
 			const FString AssetName = AssetData->AssetName.ToString();
-			return PackagePath == AssetName;
+			if (PackagePath == AssetName)
+			{
+				GameFeaturesData = AssetData;
+				return false;
+			}
 		}
-		return false;
+		return true;
 	});
-	return GameFeaturesData ? *GameFeaturesData : nullptr;
+	return GameFeaturesData;
 }
 
 bool UGFPakPlugin::BroadcastOnStatusChange(EGFPakLoaderStatus NewStatus)
@@ -1737,36 +1746,8 @@ bool UGFPakPlugin::UnloadPackages(const TArray<UPackage*>& Packages, FText& OutE
 		FCoreUObjectDelegates::PostReachabilityAnalysis.Remove(ReachabilityCallbackHandle);
 #endif
 
-#if WITH_EDITORONLY_DATA
-		// Clear the standalone flag on metadata objects that are going to be GC'd below.
-		// This resolves the circular dependency between metadata and packages.
-		TArray<TWeakObjectPtr<UMetaData>> PackageMetaDataWithClearedStandaloneFlag;
-		for (UPackage* PackageToUnload : PackagesToUnload)
-		{
-			UMetaData* PackageMetaData = PackageToUnload ? PackageToUnload->GetMetaData() : nullptr;
-			if ( PackageMetaData && PackageMetaData->HasAnyFlags(RF_Standalone) )
-			{
-				PackageMetaData->ClearFlags(RF_Standalone);
-				PackageMetaDataWithClearedStandaloneFlag.Add(PackageMetaData);
-			}
-		}
-#endif
-		
 		CollectGarbage( GARBAGE_COLLECTION_KEEPFLAGS );
 		FlushRenderingCommands();
-		
-#if WITH_EDITORONLY_DATA
-		// Restore the standalone flag on any metadata objects that survived the GC
-		for ( const TWeakObjectPtr<UMetaData>& WeakPackageMetaData : PackageMetaDataWithClearedStandaloneFlag )
-		{
-			UMetaData* MetaData = WeakPackageMetaData.Get();
-			if ( MetaData )
-			{
-				MetaData->SetFlags(RF_Standalone);
-			}
-		}
-#endif
-		
 #if WITH_EDITOR
 		// Update the actor browser if a script package was unloaded
 		if ( bScriptPackageWasUnloaded )
@@ -1803,16 +1784,18 @@ void UGFPakPlugin::RestoreStandaloneOnReachableObjects()
 
 void UGFPakPlugin::AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOrRemove Action, const TSet<FName>& PackageNames)
 {
-	if (PackageNames.IsEmpty())
-	{
-		return;
-	}
+	//TODO: likely still an issue, but was not able to reproduce on 5.6
 
-	IAssetRegistry* AssetRegistry = IAssetRegistry::Get();
-	if (!AssetRegistry)
-	{
-		return;
-	}
+	// if (PackageNames.IsEmpty())
+	// {
+	// 	return;
+	// }
+	//
+	// IAssetRegistry* AssetRegistry = IAssetRegistry::Get();
+	// if (!AssetRegistry)
+	// {
+	// 	return;
+	// }
 	
 	// The AssetRegistry CachedEmptyPackages (UAssetRegistryImpl.GuardedData.CachedEmptyPackages) is only cleared in
 	// UAssetRegistryImpl::AssetCreated and UAssetRegistryImpl::AssetRenamed.
@@ -1823,54 +1806,54 @@ void UGFPakPlugin::AddOrRemovePackagesFromAssetRegistryEmptyPackagesCache(EAddOr
 	// so we use them to clear the cache.
 	// todo: check with Epic if AssetRegistry::AppendState could clear the empty packages, or expose a way to add/remove them
 	
-	// This lambda to remove the given packages from the cache is not threadsafe
-	auto RemovePackagesFromCache = [&PackageNames, &AssetRegistry, Action]()
-	{
-		const TSet<FName>& CachedEmptyPackagesConst = AssetRegistry->GetCachedEmptyPackages(); // using deprecated function! But haven't found an easy alternative
-		TSet<FName>& CachedEmptyPackages = const_cast<TSet<FName>&>(CachedEmptyPackagesConst); // remove const-ness from the cache
-		if (Action == EAddOrRemove::Add)
-		{
-			for (FName PackageName : PackageNames)
-			{
-				CachedEmptyPackages.Add(PackageName);
-			}
-		}
-		else
-		{
-			for (FName PackageName : PackageNames)
-			{
-				CachedEmptyPackages.Remove(PackageName);
-			}
-		}
-		
-	};
-	
-	bool bHasUpdated = false;
-
-	// As both ReadLockEnumerateTagToAssetDatas and EnumerateAllPackages don't have a way to short circuit to for loop (we don't care about the assets, we just want the lock)
-	// we try calling first the function which should have the lesser number of items
-	AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
-	{
-		if (!bHasUpdated)
-		{
-			RemovePackagesFromCache();
-			bHasUpdated = true;
-		}
-	});
-
-	if (bHasUpdated)
-	{
-		return;
-	}
-	
-	AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
-	{
-		if (!bHasUpdated)
-		{
-			RemovePackagesFromCache();
-			bHasUpdated = true;
-		}
-	});
+	// // This lambda to remove the given packages from the cache is not threadsafe
+	// auto RemovePackagesFromCache = [&PackageNames, &AssetRegistry, Action]()
+	// {
+	// 	const TSet<FName>& CachedEmptyPackagesConst = AssetRegistry->GetCachedEmptyPackages(); // using deprecated function! But haven't found an easy alternative
+	// 	TSet<FName>& CachedEmptyPackages = const_cast<TSet<FName>&>(CachedEmptyPackagesConst); // remove const-ness from the cache
+	// 	if (Action == EAddOrRemove::Add)
+	// 	{
+	// 		for (FName PackageName : PackageNames)
+	// 		{
+	// 			CachedEmptyPackages.Add(PackageName);
+	// 		}
+	// 	}
+	// 	else
+	// 	{
+	// 		for (FName PackageName : PackageNames)
+	// 		{
+	// 			CachedEmptyPackages.Remove(PackageName);
+	// 		}
+	// 	}
+	//
+	// };
+	//
+	// bool bHasUpdated = false;
+	//
+	// // As both ReadLockEnumerateTagToAssetDatas and EnumerateAllPackages don't have a way to short circuit to for loop (we don't care about the assets, we just want the lock)
+	// // we try calling first the function which should have the lesser number of items
+	// AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
+	// {
+	// 	if (!bHasUpdated)
+	// 	{
+	// 		RemovePackagesFromCache();
+	// 		bHasUpdated = true;
+	// 	}
+	// });
+	//
+	// if (bHasUpdated)
+	// {
+	// 	return;
+	// }
+	//
+	// AssetRegistry->ReadLockEnumerateTagToAssetDatas([&bHasUpdated, &RemovePackagesFromCache](FName TagName, const TArray<const FAssetData*>& Assets)
+	// {
+	// 	if (!bHasUpdated)
+	// 	{
+	// 		RemovePackagesFromCache();
+	// 		bHasUpdated = true;
+	// 	}
+	// });
 }
 
 void UGFPakPlugin::UnregisterPluginAssetsFromAssetRegistry()

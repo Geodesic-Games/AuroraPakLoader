@@ -138,7 +138,7 @@ IFileHandle* FGFPakLoaderPlatformFile::OpenRead(const TCHAR* Filename, bool bAll
 	// we are already have a handle of the right plugin containing the file, could we somehow use it here and in the other functions? 
 	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenRead(Filename, bAllowWrite))
 }
-IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename)
+IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filename, bool bAllowWrite)
 {
 	// We need to be careful in OpenAsyncRead because it works a bit differently than what we might expect.
 	// Calling `PakPlatformFile->OpenAsyncRead` in Editor always ends up calling IPlatformFile::OpenAsyncRead(Filename) without calling the function on the LowerLevel.
@@ -156,21 +156,77 @@ IAsyncReadFileHandle* FGFPakLoaderPlatformFile::OpenAsyncRead(const TCHAR* Filen
 		if (bFoundInPak && PakPlatformFile == PlatformFile)
 		{
 			UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )  =>  PakPlatformFile"), Filename)
-			return PakPlatformFile->OpenAsyncRead(Filename);
+			return PakPlatformFile->OpenAsyncRead(Filename, bAllowWrite);
 		}
 		UE_LOG(LogGFPakLoader, VeryVerbose, TEXT(" ... FGFPakLoaderPlatformFile::OpenAsyncRead ( `%s` )"), Filename)
-		return LowerLevel->OpenAsyncRead(Filename);
+		return LowerLevel->OpenAsyncRead(Filename, bAllowWrite);
 	}
 	return Value;
 }
-IMappedFileHandle* FGFPakLoaderPlatformFile::OpenMapped(const TCHAR* Filename)
+
+FOpenMappedResult FGFPakLoaderPlatformFile::OpenMappedEx(const TCHAR* Filename, EOpenReadFlags OpenOptions, int64 MaximumSize)
 {
-	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IMappedFileHandle*, nullptr, OpenMapped(Filename))
+	FOpenMappedResult Value = MakeError("No Platform File");
+	if (IPlatformFile* PlatformFile = GetPlatformFile(Filename))
+	{
+		const FString AdjustedFilename = GetPakAdjustedFilename(Filename);
+		Filename = *AdjustedFilename;
+		Value = PlatformFile->OpenMappedEx(Filename, OpenOptions, MaximumSize);
+		if (Value.HasError() && LowerLevel != nullptr && PakPlatformFile == PlatformFile)
+		{
+			Value = LowerLevel->OpenMappedEx(Filename, OpenOptions, MaximumSize);
+		}
+	}
+	return Value;
 }
+
 IFileHandle* FGFPakLoaderPlatformFile::OpenReadNoBuffering(const TCHAR* Filename, bool bAllowWrite)
 {
 	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenReadNoBuffering(Filename, bAllowWrite))
 }
+
+bool FGFPakLoaderPlatformFile::FileJournalIsAvailable(const TCHAR* VolumeOrPath, ELogVerbosity::Type* OutErrorLevel, FString* OutError)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalIsAvailable(VolumeOrPath, OutErrorLevel, OutError) : false;
+}
+
+uint64 FGFPakLoaderPlatformFile::FileJournalGetMaximumSize(const TCHAR* VolumeOrPath, ELogVerbosity::Type* OutErrorLevel, FString* OutError) const
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalGetMaximumSize(VolumeOrPath, OutErrorLevel, OutError) : 0;
+}
+
+EFileJournalResult FGFPakLoaderPlatformFile::FileJournalGetLatestEntry(const TCHAR* VolumeName, FFileJournalId& OutJournalId, FFileJournalEntryHandle& OutEntryHandle, FString* OutError)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalGetLatestEntry(VolumeName, OutJournalId, OutEntryHandle, OutError) : EFileJournalResult::InvalidPlatform;
+}
+
+bool FGFPakLoaderPlatformFile::FileJournalIterateDirectory(const TCHAR* Directory, FDirectoryJournalVisitorFunc Visitor, FString* OutError)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalIterateDirectory(Directory, MoveTemp(Visitor), OutError) : false;
+}
+
+FFileJournalData FGFPakLoaderPlatformFile::FileJournalGetFileData(const TCHAR* FilenameOrDirectory, FString* OutError)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalGetFileData(FilenameOrDirectory, OutError) : FFileJournalData();
+}
+
+EFileJournalResult FGFPakLoaderPlatformFile::FileJournalReadModified(const TCHAR* VolumeName, const FFileJournalId& JournalIdOfStartingEntry, const FFileJournalEntryHandle& StartingJournalEntry, TMap<FFileJournalFileHandle, FString>& KnownDirectories, TSet<FString>& OutModifiedDirectories, FFileJournalEntryHandle& OutNextJournalEntry, FString* OutError)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalReadModified(VolumeName, JournalIdOfStartingEntry, StartingJournalEntry, KnownDirectories, OutModifiedDirectories, OutNextJournalEntry, OutError) : EFileJournalResult::InvalidPlatform;
+}
+
+FString FGFPakLoaderPlatformFile::FileJournalGetVolumeName(FStringView InPath)
+{
+	IPlatformFile* PlatformFile = GetPlatformFile();
+	return PlatformFile ? PlatformFile->FileJournalGetVolumeName(InPath) : FString();
+}
+
 IFileHandle* FGFPakLoaderPlatformFile::OpenWrite(const TCHAR* Filename, bool bAppend, bool bAllowRead)
 {
 	CALL_PAK_PLATFORM_FILE_FIRST_ON_FILE(IFileHandle*, nullptr, OpenWrite(Filename, bAppend, bAllowRead))

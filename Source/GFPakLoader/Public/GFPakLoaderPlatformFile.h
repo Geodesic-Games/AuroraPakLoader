@@ -69,21 +69,40 @@ public:
 	virtual void SetLowerLevel(IPlatformFile* NewLowerLevel) override { LowerLevel = NewLowerLevel; }
 	virtual const TCHAR* GetName() const override { return FGFPakLoaderPlatformFile::GetTypeName(); }
 	virtual void Tick() override;
-	
+
 	virtual bool FileExists(const TCHAR* Filename) override;
 	virtual int64 FileSize(const TCHAR* Filename) override;
 	virtual bool IsReadOnly(const TCHAR* Filename) override;
 	virtual bool DeleteFile(const TCHAR* Filename) override;
+	virtual bool DeleteFiles(const TArrayView<const TCHAR*>& Filenames) override
+	{
+		return IPlatformFile::DeleteFiles(Filenames);
+	}
 	virtual bool MoveFile(const TCHAR* To, const TCHAR* From) override;
 	virtual bool SetReadOnly(const TCHAR* Filename, bool bNewReadOnlyValue) override;
 	virtual FDateTime GetTimeStamp(const TCHAR* Filename) override;
 	virtual void SetTimeStamp(const TCHAR* Filename, FDateTime DateTime) override;
 	virtual FDateTime GetAccessTimeStamp(const TCHAR* Filename) override;
 	virtual FString GetFilenameOnDisk(const TCHAR* Filename) override;
+	virtual FFileOpenResult OpenRead(const TCHAR* Filename, EOpenReadFlags Flags) override
+	{
+		return IPlatformFile::OpenRead(Filename, Flags);
+	}
 	virtual IFileHandle* OpenRead(const TCHAR* Filename, bool bAllowWrite = false) override;
 	virtual IFileHandle* OpenReadNoBuffering(const TCHAR* Filename, bool bAllowWrite = false) override;
-	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename) override;
-	virtual IMappedFileHandle* OpenMapped(const TCHAR* Filename) override;
+	virtual bool FileJournalIsAvailable(const TCHAR* VolumeOrPath = nullptr, ELogVerbosity::Type* OutErrorLevel = nullptr, FString* OutError = nullptr) override;
+	virtual uint64 FileJournalGetMaximumSize(const TCHAR* VolumeOrPath = nullptr, ELogVerbosity::Type* OutErrorLevel = nullptr, FString* OutError = nullptr) const override;
+	virtual EFileJournalResult FileJournalGetLatestEntry(const TCHAR* VolumeName, FFileJournalId& OutJournalId, FFileJournalEntryHandle& OutEntryHandle, FString* OutError = nullptr) override;
+	virtual bool FileJournalIterateDirectory(const TCHAR* Directory, FDirectoryJournalVisitorFunc Visitor, FString* OutError = nullptr) override;
+	virtual FFileJournalData FileJournalGetFileData(const TCHAR* FilenameOrDirectory, FString* OutError = nullptr) override;
+	virtual EFileJournalResult FileJournalReadModified(const TCHAR* VolumeName, const FFileJournalId& JournalIdOfStartingEntry, const FFileJournalEntryHandle& StartingJournalEntry, TMap<FFileJournalFileHandle, FString>& KnownDirectories, TSet<FString>& OutModifiedDirectories, FFileJournalEntryHandle& OutNextJournalEntry, FString* OutError = nullptr) override;
+	virtual FString FileJournalGetVolumeName(FStringView InPath) override;
+	virtual FFileOpenAsyncResult OpenAsyncRead(const TCHAR* Filename, EOpenReadFlags Flags) override
+	{
+		return IPlatformFile::OpenAsyncRead(Filename, Flags);
+	}
+	virtual IAsyncReadFileHandle* OpenAsyncRead(const TCHAR* Filename, bool bAllowWrite = false) override;
+	virtual FOpenMappedResult OpenMappedEx(const TCHAR* Filename, EOpenReadFlags OpenOptions = EOpenReadFlags::None, int64 MaximumSize = 0) override;
 	virtual IFileHandle* OpenWrite(const TCHAR* Filename, bool bAppend = false, bool bAllowRead = false) override;
 	virtual bool DirectoryExists(const TCHAR* Directory) override;
 	virtual bool CreateDirectory(const TCHAR* Directory) override;
